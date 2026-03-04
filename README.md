@@ -83,7 +83,7 @@ git clone https://github.com/ethan-boey/actl4001-soa-2026-case-study.git
 cd soa-2026-case-study
 ```
 
-Replace `Documents` with whatever folder you want the project to live in, and replace the URL with the actual repo URL (find it by clicking the green **Code** button on the GitHub repo page).
+Replace `Documents` with whatever folder you want the project to live in.
 
 After this you'll have a folder called `actl4001-soa-2026-case-study` on your computer containing the full project.
 
