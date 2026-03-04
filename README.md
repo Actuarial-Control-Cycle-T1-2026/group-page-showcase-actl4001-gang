@@ -93,7 +93,7 @@ After this you'll have a folder called `actl4001-soa-2026-case-study` on your co
 
 The SOA data files are intentionally excluded from GitHub (they're too large and don't need version tracking). You need to add them manually to your local copy.
 
-Place all of the following files inside the `data/raw/` folder on your computer (these can be downloaded if you havent already from the SOA website):
+Place all of the following files inside the `data/raw/` folder on your computer (create a new "raw" folder if not already there, the SOA files can be downloaded if you havent already from the SOA website):
 
 - `srcsc-2026-claims-business-interruption.xlsx`
 - `srcsc-2026-claims-cargo.xlsx`
