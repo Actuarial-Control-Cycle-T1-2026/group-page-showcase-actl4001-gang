@@ -1,6 +1,6 @@
 # SOA 2026 Student Research Case Study
-**Team:** [Your Team Name]  
-**University:** [Your University]  
+**Team:** tbd 
+**University:** UNSW
 
 ## Project Structure
 - `data/raw/` — Original SOA data files (not tracked by Git — add manually)
@@ -20,3 +20,4 @@
 
 ## Run Order
 Run R scripts in numbered order: 00 → 01 → 02 → 03 → 04 → 05
+
