@@ -56,7 +56,7 @@ Open **Terminal** (Mac) or **Git Bash** (Windows) and run these two commands, re
 git config --global user.name "Your Name"
 git config --global user.email "your@email.com"
 ```
-
+*note: shortcut to paste in the git terminal is middle mouse, otherwwise you can just right click and select paste (control + v does not work)
 Use the same email address you signed up to GitHub with.
 
 ---
