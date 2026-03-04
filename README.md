@@ -123,7 +123,7 @@ These files will never be uploaded to GitHub — every team member manages their
 This is the step that activates the Git panel inside RStudio.
 
 1. In RStudio, go to **File → Open Project**
-2. Navigate to your cloned `soa-2026-case-study` folder
+2. Navigate to your cloned `actl4001-soa-2026-case-study` folder
 3. Select the `.Rproj` file and click **Open**
 
 RStudio will reload and a **Git tab** will appear in the top-right panel. This is where you do everything — no terminal required.
