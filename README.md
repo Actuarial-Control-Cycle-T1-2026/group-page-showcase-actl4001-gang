@@ -65,7 +65,7 @@ Use the same email address you signed up to GitHub with.
 
 1. Check your email for an invitation from GitHub to join the repository
 2. Click **View invitation** → **Accept invitation**
-3. You now have access to the repo at `https://github.com/[team-lead-username]/soa-2026-case-study`
+3. You now have access to the repo at `https://github.com/ethan-boey/actl4001-soa-2026-case-study`
 
 ---
 
@@ -77,13 +77,13 @@ Open Terminal (Mac) or Git Bash (Windows) and run:
 
 ```bash
 cd Documents
-git clone https://github.com/[team-lead-username]/soa-2026-case-study.git
+git clone https://github.com/ethan-boey/actl4001-soa-2026-case-study.git
 cd soa-2026-case-study
 ```
 
 Replace `Documents` with whatever folder you want the project to live in, and replace the URL with the actual repo URL (find it by clicking the green **Code** button on the GitHub repo page).
 
-After this you'll have a folder called `soa-2026-case-study` on your computer containing the full project.
+After this you'll have a folder called `actl4001-soa-2026-case-study` on your computer containing the full project.
 
 ---
 
@@ -91,7 +91,7 @@ After this you'll have a folder called `soa-2026-case-study` on your computer co
 
 The SOA data files are intentionally excluded from GitHub (they're too large and don't need version tracking). You need to add them manually to your local copy.
 
-Place all of the following files inside the `data/raw/` folder on your computer:
+Place all of the following files inside the `data/raw/` folder on your computer (these can be downloaded if you havent already from the SOA website):
 
 - `srcsc-2026-claims-business-interruption.xlsx`
 - `srcsc-2026-claims-cargo.xlsx`
