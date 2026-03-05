@@ -80,7 +80,7 @@ Open Terminal (Mac) or Git Bash (Windows) and run:
 ```bash
 cd Documents
 git clone https://github.com/ethan-boey/actl4001-soa-2026-case-study.git
-cd soa-2026-case-study
+cd actl4001-soa-2026-case-study
 ```
 
 Replace `Documents` with whatever folder you want the project to live in.
