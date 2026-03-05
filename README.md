@@ -63,7 +63,7 @@ Use the same email address you signed up to GitHub with.
 
 ---
 
-## Stage 3 — Accept the Repository Invitation
+## Stage 3 — Accept the Repository Invitation (if u are looking at this on github you're done with this, go to next step)
 
 1. Check your email for an invitation from GitHub to join the repository
 2. Click **View invitation** → **Accept invitation**
