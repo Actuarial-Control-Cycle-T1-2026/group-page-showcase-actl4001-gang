@@ -1,65 +1,84 @@
 # =============================================================================
-# SOA 2026 Case Study — Business Interruption EDA: Sections A–D
-# =============================================================================
-# A: Distributional Diagnostics (VMR, zero-inflation, rootogram, severity shape)
-# B: One-Way Relativity Analysis (categorical + continuous covariates)
-# C: Correlation Analysis (Spearman heatmap, Cramér's V, interaction plots)
-# D: Tail Analysis & Distribution Fitting (log-log, MEF, Q-Q, AIC/BIC, inflation)
-# =============================================================================
-# All plots print directly to the RStudio Plots pane — no files are saved.
-# Bugs fixed:
-#   [1] fitdist(ca, "gamma") error code 100 → now fits on $M scale (ca_m)
-#   [2] denscomp/qqcomp/ppcomp col conflict → now uses fitcol argument
-#   [3] ggsave() removed → replaced with print()
-#   [4] pdf()/dev.off() removed → fitdistrplus plots print directly
+# SOA 2026 Case Study — Business Interruption Pricing Pipeline
+# Galaxy General Insurance Company
+# Final Submission Version
 # =============================================================================
 
 library(tidyverse)
 library(readxl)
-library(MASS)          # glm.nb
-library(pscl)          # zeroinfl (ZIP/ZINB)
-library(fitdistrplus)  # fitdist, gofstat, descdist
-library(actuar)        # severity distributions
-library(ggplot2)
-library(patchwork)     # combine ggplots
-library(corrplot)      # correlation heatmap
-library(e1071)         # skewness, kurtosis
+library(pscl)
+library(MASS)
+library(fitdistrplus)
+library(glmmTMB)
+library(scales)
+library(gridExtra)
+library(grid)
+library(gt)
 
-path <- "C:/Users/Ethan/Documents/actl4001-soa-2026-case-study/data/raw/"   # <-- SET THIS
+select <- dplyr::select
 
-# ── Load & Clean ──────────────────────────────────────────────────────────────
-bi_freq <- read_excel(paste0(path, "srcsc-2026-claims-business-interruption.xlsx"), sheet = "freq")
-bi_sev  <- read_excel(paste0(path, "srcsc-2026-claims-business-interruption.xlsx"), sheet = "sev")
-rates   <- read_excel(paste0(path, "srcsc-2026-interest-and-inflation.xlsx"), skip = 1) |>
+set.seed(278)
+
+DATA_PATH <- "C:/Users/Ethan/Documents/actl4001-soa-2026-case-study/data/raw/"
+N_SIM     <- 50000
+
+
+# =============================================================================
+# 1. DATA LOADING
+# =============================================================================
+
+raw_freq  <- read_excel(
+  paste0(DATA_PATH, "srcsc-2026-claims-business-interruption.xlsx"), sheet = "freq"
+)
+raw_sev   <- read_excel(
+  paste0(DATA_PATH, "srcsc-2026-claims-business-interruption.xlsx"), sheet = "sev"
+)
+raw_rates <- read_excel(
+  paste0(DATA_PATH, "srcsc-2026-interest-and-inflation.xlsx"), skip = 1
+) |>
   rename(Year = 1, Inflation = 2, Overnight = 3, Spot1Y = 4, Spot10Y = 5) |>
   filter(!is.na(Year), Year != "Year") |>
-  mutate(across(everything(), as.numeric))
+  mutate(across(everything(), as.numeric)) |>
+  arrange(Year)
 
-bi_freq <- bi_freq |>
-  mutate(solar_system = str_extract(solar_system, "^[^_]+"))
 
-bi_freq_clean <- bi_freq |>
+# =============================================================================
+# 2. DATA CLEANING
+# =============================================================================
+
+# ── 2.1 Frequency ─────────────────────────────────────────────────────────────
+freq <- raw_freq |>
+  mutate(solar_system = str_extract(solar_system, "^[^_]+")) |>
   filter(
     !is.na(policy_id), !is.na(solar_system),
     between(exposure, 0, 1),
-    !is.na(claim_count), claim_count >= 0, claim_count == floor(claim_count),
     between(production_load, 0, 1),
     between(supply_chain_index, 0, 1),
     between(avg_crew_exp, 1, 30),
-    between(maintenance_freq, 0, 6), maintenance_freq == floor(maintenance_freq),
+    between(maintenance_freq, 0, 6),
+    maintenance_freq == floor(maintenance_freq),
     energy_backup_score %in% 1:5,
-    safety_compliance %in% 1:5
+    safety_compliance   %in% 1:5,
+    !is.na(claim_count),
+    claim_count >= 0,
+    claim_count == floor(claim_count)
   ) |>
   mutate(
     claim_count         = as.integer(claim_count),
-    has_claim           = as.integer(claim_count >= 1),
-    solar_system        = factor(solar_system),
+    maintenance_freq    = as.integer(maintenance_freq),
+    solar_system        = factor(solar_system, levels = c("Zeta", "Epsilon", "Helionis Cluster")),
     energy_backup_score = factor(energy_backup_score, levels = 1:5, ordered = TRUE),
     safety_compliance   = factor(safety_compliance,   levels = 1:5, ordered = TRUE),
-    maintenance_freq    = as.integer(maintenance_freq)
+    log_exposure        = log(pmax(exposure, 1e-6))
   )
 
-bi_sev_clean <- bi_sev |>
+# ── 2.2 Severity ──────────────────────────────────────────────────────────────
+# Data dictionary range ($28,265–$1,425,532) is treated as descriptive, not
+# contractual. Correlation analysis across all covariates found no systematic
+# predictor of DD exceedance; distribution is continuous across the ceiling.
+# Full dataset retained. See supplementary script for supporting analysis.
+sev <- raw_sev |>
+  mutate(solar_system = str_extract(solar_system, "^[^_]+")) |>
   filter(
     !is.na(claim_id), !is.na(policy_id),
     !is.na(claim_seq), claim_seq >= 1,
@@ -67,532 +86,865 @@ bi_sev_clean <- bi_sev |>
     between(exposure, 0, 1),
     between(production_load, 0, 1),
     energy_backup_score %in% 1:5,
-    safety_compliance %in% 1:5
+    safety_compliance   %in% 1:5
   ) |>
   mutate(
-    solar_system        = str_extract(solar_system, "^[^_]+") |> factor(),
+    solar_system        = factor(solar_system, levels = c("Zeta", "Epsilon", "Helionis Cluster")),
     energy_backup_score = factor(energy_backup_score, levels = 1:5, ordered = TRUE),
     safety_compliance   = factor(safety_compliance,   levels = 1:5, ordered = TRUE)
   )
 
-cat(sprintf("FREQ clean: %d rows | SEV clean: %d rows\n",
-            nrow(bi_freq_clean), nrow(bi_sev_clean)))
-
-
-# =============================================================================
-# SECTION A — DISTRIBUTIONAL DIAGNOSTICS
-# =============================================================================
-cat("\n===== SECTION A — DISTRIBUTIONAL DIAGNOSTICS =====\n")
-
-cc  <- bi_freq_clean$claim_count
-n   <- length(cc)
-mu  <- mean(cc)
-vmr <- var(cc) / mu
-
-# ── A1: Variance-to-Mean Ratio ────────────────────────────────────────────────
-cat(sprintf("\n[A1] Variance-to-Mean Ratio (VMR)\n"))
-cat(sprintf("  Mean     = %.6f\n", mu))
-cat(sprintf("  Variance = %.6f\n", var(cc)))
-cat(sprintf("  VMR      = %.4f  ->  %s\n", vmr,
-            ifelse(vmr > 1.2,
-                   "OVERDISPERSED — NegBin / ZINB warranted",
-                   "Near-equidispersed — Poisson may be adequate")))
-
-# ── A2: Zero-inflation test ────────────────────────────────────────────────────
-cat("\n[A2] Zero-Inflation Test\n")
-p0_obs <- mean(cc == 0)
-p0_poi <- exp(-mu)
-cat(sprintf("  Observed P(0) = %.4f  (%.2f%%)\n", p0_obs, p0_obs * 100))
-cat(sprintf("  Poisson  P(0) = %.4f  (%.2f%%)\n", p0_poi, p0_poi * 100))
-cat(sprintf("  Excess zeros  = +%.2f pp  ->  %s\n",
-            (p0_obs - p0_poi) * 100,
-            ifelse(p0_obs > p0_poi + 0.01,
-                   "ZERO-INFLATED — ZIP or ZINB",
-                   "Not significant")))
-
-# ── A3: Hanging rootogram ─────────────────────────────────────────────────────
-cat("\n[A3] Rootogram Data (Observed vs Poisson)\n")
-cnt_tbl   <- table(cc)
-vals      <- as.integer(names(cnt_tbl))
-obs_cnt   <- as.integer(cnt_tbl)
-exp_cnt   <- dpois(vals, lambda = mu) * n
-root_diff <- sqrt(obs_cnt) - sqrt(exp_cnt)
-
-rootogram_df <- tibble(
-  count    = vals,
-  observed = obs_cnt,
-  expected = round(exp_cnt, 2),
-  sqrt_obs = round(sqrt(obs_cnt), 3),
-  sqrt_exp = round(sqrt(exp_cnt), 3),
-  hanging  = round(root_diff, 3)
-)
-print(rootogram_df)
-
-p_root <- ggplot(rootogram_df, aes(x = factor(count), y = hanging,
-                                   fill = hanging >= 0)) +
-  geom_col(alpha = 0.85, show.legend = FALSE, width = 0.6) +
-  geom_hline(yintercept = 0, linetype = "dashed", colour = "white",
-             linewidth = 0.8) +
-  scale_fill_manual(values = c("TRUE" = "#4fc3f7", "FALSE" = "#f06292")) +
-  labs(
-    title    = "A3 — Hanging Rootogram: BI Claim Count vs Poisson",
-    subtitle = "Blue = more than Poisson expects  |  Red = fewer than Poisson expects",
-    x        = "Claim Count",
-    y        = "sqrt(Observed) - sqrt(Expected)"
-  ) +
-  theme_dark() +
-  theme(plot.title    = element_text(face = "bold"),
-        plot.subtitle = element_text(colour = "grey70"))
-print(p_root)
-
-# ── A4: Severity shape statistics ─────────────────────────────────────────────
-cat("\n[A4] Severity Shape Statistics\n")
-ca <- bi_sev_clean$claim_amount
-cat(sprintf("  n          : %d\n",    length(ca)))
-cat(sprintf("  Mean       : $%.0f\n", mean(ca)))
-cat(sprintf("  Median     : $%.0f\n", median(ca)))
-cat(sprintf("  Skewness   : %.3f\n",  skewness(ca)))
-cat(sprintf("  Kurtosis   : %.3f\n",  kurtosis(ca)))
-cat(sprintf("  CoV        : %.4f\n",  sd(ca) / mean(ca)))
-cat(sprintf("  log(X) mean: %.4f\n",  mean(log(ca))))
-cat(sprintf("  log(X) sd  : %.4f\n",  sd(log(ca))))
-
-p_sev_hist <- ggplot(bi_sev_clean, aes(x = claim_amount / 1e6)) +
-  geom_histogram(bins = 60, fill = "#a5d6a7", colour = "#1a1f2e",
-                 linewidth = 0.2, alpha = 0.85) +
-  geom_vline(aes(xintercept = median(claim_amount / 1e6), colour = "Median"),
-             linewidth = 1.2, linetype = "dashed") +
-  geom_vline(aes(xintercept = mean(claim_amount / 1e6), colour = "Mean"),
-             linewidth = 1.2, linetype = "dashed") +
-  scale_colour_manual(values = c("Median" = "#ffb74d", "Mean" = "#f06292")) +
-  labs(title  = "A4 — BI Claim Severity Distribution",
-       x      = "Claim Amount ($M)",
-       y      = "Count",
-       colour = NULL) +
-  theme_dark() +
-  theme(plot.title      = element_text(face = "bold"),
-        legend.position = "top")
-print(p_sev_hist)
-
-# Cullen-Frey plot — prints automatically
-cat("\n[A4b] Cullen-Frey plot (prints to Plots pane):\n")
-descdist(ca, discrete = FALSE, boot = 200)
-
-
-# =============================================================================
-# SECTION B — ONE-WAY RELATIVITY ANALYSIS
-# =============================================================================
-cat("\n===== SECTION B — ONE-WAY RELATIVITY ANALYSIS =====\n")
-
-base_rate <- mean(bi_freq_clean$has_claim)
-base_sev  <- mean(bi_sev_clean$claim_amount)
-cat(sprintf("  Overall claim rate : %.4f (%.2f%%)\n", base_rate, base_rate * 100))
-cat(sprintf("  Overall mean sev   : $%.0f\n",         base_sev))
-
-# Helper: one-way relativity table
-one_way <- function(df, col) {
-  df |>
-    group_by(across(all_of(col))) |>
-    summarise(
-      n          = n(),
-      tot_claims = sum(has_claim),
-      rate       = mean(has_claim),
-      .groups    = "drop"
-    ) |>
-    mutate(
-      relativity = rate / base_rate,
-      ci_lo      = (rate - 1.96 * sqrt(rate * (1 - rate) / n)) / base_rate,
-      ci_hi      = (rate + 1.96 * sqrt(rate * (1 - rate) / n)) / base_rate
-    )
-}
-
-# Helper: relativity bar chart
-plot_relativity <- function(rel_df, var_col, title) {
-  ggplot(rel_df, aes(x = factor(.data[[var_col]]), y = relativity)) +
-    geom_col(fill = "#4fc3f7", alpha = 0.82, width = 0.6) +
-    geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi),
-                  width = 0.2, colour = "#ffb74d", linewidth = 1) +
-    geom_hline(yintercept = 1, linetype = "dashed",
-               colour = "white", linewidth = 0.8) +
-    geom_text(aes(label = sprintf("%.3f\n(%.1f%%)", relativity, rate * 100)),
-              vjust = -0.3, size = 2.8, colour = "white") +
-    labs(title = title, x = var_col, y = "Relativity vs Overall") +
-    theme_dark() +
-    theme(plot.title  = element_text(face = "bold", size = 9),
-          axis.text.x = element_text(angle = 25, hjust = 1))
-}
-
-# ── B1: Categorical relativities ──────────────────────────────────────────────
-cat("\n[B1] Categorical relativities:\n")
-
-rel_solar <- one_way(bi_freq_clean, "solar_system")
-rel_ebs   <- one_way(bi_freq_clean, "energy_backup_score")
-rel_sc    <- one_way(bi_freq_clean, "safety_compliance")
-rel_mf    <- one_way(bi_freq_clean, "maintenance_freq")
-
-cat("\n  --- solar_system ---\n");        print(rel_solar)
-cat("\n  --- energy_backup_score ---\n"); print(rel_ebs)
-cat("\n  --- safety_compliance ---\n");   print(rel_sc)
-cat("\n  --- maintenance_freq ---\n");    print(rel_mf)
-
-p_b1 <- (
-  plot_relativity(rel_solar, "solar_system",        "B1a — Solar System") +
-    plot_relativity(rel_ebs,   "energy_backup_score", "B1b — Energy Backup Score")
-) / (
-  plot_relativity(rel_sc, "safety_compliance", "B1c — Safety Compliance") +
-    plot_relativity(rel_mf, "maintenance_freq",  "B1d — Maintenance Frequency")
-)
-print(p_b1)
-
-# ── B2: Continuous covariates (binned) ────────────────────────────────────────
-cat("\n[B2] Continuous (binned) relativities:\n")
-
-bi_freq_clean <- bi_freq_clean |>
+# ── 2.3 Inflation trend & discount rate ──────────────────────────────────────
+rates <- raw_rates |>
   mutate(
-    exp_bin  = cut(exposure,           breaks = c(0, .2, .4, .6, .8, 1),  include.lowest = TRUE),
-    pl_bin   = cut(production_load,    breaks = c(0, .25, .5, .75, 1),    include.lowest = TRUE),
-    sc_bin   = cut(supply_chain_index, breaks = c(0, .25, .5, .75, 1),    include.lowest = TRUE),
-    crew_bin = cut(avg_crew_exp,       breaks = c(1, 6, 11, 16, 21, 30),  include.lowest = TRUE)
+    cum_cpi       = cumprod(1 + Inflation),
+    trend_to_base = max(cum_cpi) / cum_cpi
   )
 
-rel_exp  <- one_way(bi_freq_clean, "exp_bin")
-rel_pl   <- one_way(bi_freq_clean, "pl_bin")
-rel_sc2  <- one_way(bi_freq_clean, "sc_bin")
-rel_crew <- one_way(bi_freq_clean, "crew_bin")
+mean_trend <- mean(rates$trend_to_base)    # applied to sev (no year column)
+spot_1y    <- tail(rates$Spot1Y, 1)
+discount_f <- 1 / (1 + spot_1y)
 
-cat("\n  --- exposure ---\n");            print(rel_exp)
-cat("\n  --- production_load ---\n");     print(rel_pl)
-cat("\n  --- supply_chain_index ---\n");  print(rel_sc2)
-cat("\n  --- avg_crew_exp ---\n");        print(rel_crew)
+n_freq_raw  <- nrow(raw_freq)
+n_freq_cln  <- nrow(freq)
+n_sev_raw   <- nrow(raw_sev)
+n_sev_cln   <- nrow(sev)
 
-p_b2 <- (
-  plot_relativity(rel_exp,  "exp_bin",  "B2a — Exposure") +
-    plot_relativity(rel_pl,   "pl_bin",   "B2b — Production Load")
-) / (
-  plot_relativity(rel_sc2,  "sc_bin",   "B2c — Supply Chain Index") +
-    plot_relativity(rel_crew, "crew_bin", "B2d — Avg Crew Experience")
+
+# =============================================================================
+# 3. MODEL FITTING
+# =============================================================================
+
+ca_m_trended <- (sev$claim_amount * mean_trend) / 1e6
+
+# ── 3.1 Severity — Lognormal ──────────────────────────────────────────────────
+meanlog_sev <- mean(log(ca_m_trended))
+sdlog_sev   <- sd(log(ca_m_trended))
+E_X         <- exp(meanlog_sev + sdlog_sev^2 / 2)
+
+# ── 3.2 Frequency — intercept-only ZINB (portfolio base parameters) ───────────
+zinb_base <- zeroinfl(claim_count ~ 1 | 1, data = freq, dist = "negbin")
+
+psi_port <- plogis(coef(zinb_base, "zero"))
+mu_port  <- exp(coef(zinb_base, "count"))
+r_port   <- zinb_base$theta
+
+# ── 3.3 Frequency — per-solar-system ZINB (simulation parameters) ─────────────
+solar_systems <- levels(freq$solar_system)
+
+ss_params <- map(solar_systems, function(ss) {
+  dat <- filter(freq, solar_system == ss)
+  fit <- tryCatch(
+    zeroinfl(claim_count ~ 1 | 1, data = dat, dist = "negbin"),
+    error = function(e) zinb_base
+  )
+  list(
+    psi        = plogis(coef(fit, "zero")),
+    mu         = exp(coef(fit, "count")),
+    r          = r_port,
+    n_policies = nrow(dat)
+  )
+}) |> set_names(solar_systems)
+
+# ── 3.4 Frequency GLM — covariate relativities ────────────────────────────────
+# EBS converted to unordered factor: ordered factors produce polynomial
+# contrasts (.L, .Q, .C) which cannot be directly exponentiated into
+# level-specific relativities.
+freq_glm_data <- freq |>
+  mutate(energy_backup_score = factor(as.numeric(energy_backup_score), levels = 1:5))
+
+zinb_glm <- zeroinfl(
+  claim_count ~ solar_system + energy_backup_score + production_load +
+    offset(log_exposure) | 1,
+  data = freq_glm_data, dist = "negbin"
 )
-print(p_b2)
 
-# ── B3: Severity by solar system ──────────────────────────────────────────────
-cat("\n[B3] Severity relativities by solar system:\n")
-sev_by_sol <- bi_sev_clean |>
-  group_by(solar_system) |>
-  summarise(
-    n          = n(),
-    mean_sev   = mean(claim_amount),
-    median_sev = median(claim_amount),
-    p95        = quantile(claim_amount, .95),
-    .groups    = "drop"
-  ) |>
-  mutate(sev_relativity = mean_sev / base_sev)
-print(sev_by_sol)
+freq_coefs <- coef(zinb_glm, "count")
 
-p_b3 <- ggplot(sev_by_sol, aes(x = solar_system, y = sev_relativity,
-                               fill = solar_system)) +
-  geom_col(alpha = 0.85, width = 0.5, show.legend = FALSE) +
-  geom_hline(yintercept = 1, linetype = "dashed",
-             colour = "white", linewidth = 0.8) +
-  geom_text(aes(label = sprintf("%.3f\n($%.1fM)", sev_relativity, mean_sev / 1e6)),
-            vjust = -0.3, size = 3, colour = "white") +
-  scale_fill_manual(values = c(
-    "Helionis Cluster" = "#4fc3f7",
-    "Epsilon"          = "#f06292",
-    "Zeta"             = "#a5d6a7"
-  )) +
-  labs(title = "B3 — Severity Relativity by Solar System",
-       x     = NULL,
-       y     = "Relativity (mean severity)") +
-  theme_dark() +
-  theme(plot.title = element_text(face = "bold"))
-print(p_b3)
+freq_ss_rel <- setNames(
+  c(1.0,
+    unname(exp(freq_coefs["solar_systemEpsilon"])),
+    unname(exp(freq_coefs["solar_systemHelionis Cluster"]))),
+  c("Zeta", "Epsilon", "Helionis Cluster")
+)
+
+freq_ebs_rel <- setNames(
+  c(1.0, unname(exp(freq_coefs[paste0("energy_backup_score", 2:5)]))),
+  as.character(1:5)
+)
+
+# ── 3.5 Severity GLM — covariate relativities ────────────────────────────────
+sev_glm_data <- sev |>
+  mutate(
+    claim_amount_M      = (claim_amount * mean_trend) / 1e6,
+    energy_backup_score = factor(as.numeric(energy_backup_score), levels = 1:5)
+  )
+
+sev_glm <- glm(
+  claim_amount_M ~ solar_system + energy_backup_score,
+  data   = sev_glm_data,
+  family = Gamma(link = "log")
+)
+
+sev_coefs <- coef(sev_glm)
+
+sev_ss_rel <- setNames(
+  c(1.0,
+    unname(exp(sev_coefs["solar_systemEpsilon"])),
+    unname(exp(sev_coefs["solar_systemHelionis Cluster"]))),
+  c("Zeta", "Epsilon", "Helionis Cluster")
+)
+
+sev_ebs_rel <- setNames(
+  c(1.0, unname(exp(sev_coefs[paste0("energy_backup_score", 2:5)]))),
+  as.character(1:5)
+)
 
 
 # =============================================================================
-# SECTION C — CORRELATION ANALYSIS
+# 4. POLICY-BY-POLICY MONTE CARLO SIMULATION
 # =============================================================================
-cat("\n===== SECTION C — CORRELATION ANALYSIS =====\n")
 
-cont_cols  <- c("production_load", "supply_chain_index", "avg_crew_exp",
-                "maintenance_freq", "exposure", "has_claim")
-nice_names <- c("Prod. Load", "Supply Chain", "Crew Exp",
-                "Maint. Freq", "Exposure", "Claim (0/1)")
+n_pol      <- nrow(freq)
+policy_psi <- map_dbl(as.character(freq$solar_system), ~ ss_params[[.x]]$psi)
+policy_mu  <- map_dbl(as.character(freq$solar_system), ~ ss_params[[.x]]$mu)
 
-# ── C1: Spearman correlation matrix & heatmap ─────────────────────────────────
-cat("\n[C1] Spearman correlation matrix:\n")
-corr_mat <- cor(bi_freq_clean[cont_cols], method = "spearman", use = "complete.obs")
-colnames(corr_mat) <- nice_names
-rownames(corr_mat) <- nice_names
-print(round(corr_mat, 4))
+agg_losses  <- numeric(N_SIM)
+per_pol_exp <- numeric(n_pol)
 
-high_corr <- which(abs(corr_mat) > 0.15 & upper.tri(corr_mat), arr.ind = TRUE)
-if (nrow(high_corr) == 0) {
-  cat("\n  -> No pairwise |r| > 0.15 detected. No collinearity concern.\n")
-} else {
-  cat("\n  !! HIGH CORRELATIONS DETECTED:\n")
-  for (i in seq_len(nrow(high_corr))) {
-    r <- corr_mat[high_corr[i, 1], high_corr[i, 2]]
-    cat(sprintf("    %s x %s: r = %.3f\n",
-                nice_names[high_corr[i, 1]],
-                nice_names[high_corr[i, 2]], r))
+cat("Running policy-by-policy simulation...\n")
+pb <- txtProgressBar(min = 0, max = N_SIM, style = 3)
+
+for (s in seq_len(N_SIM)) {
+  
+  struct_zero <- rbinom(n_pol, 1L, policy_psi) == 1L
+  counts      <- integer(n_pol)
+  active      <- which(!struct_zero)
+  
+  if (length(active) > 0) {
+    counts[active] <- rnbinom(length(active), size = r_port, mu = policy_mu[active])
   }
-}
-
-# Heatmap — prints to Plots pane
-corrplot(corr_mat,
-         method      = "color",
-         type        = "upper",
-         addCoef.col = "white",
-         tl.col      = "white",
-         tl.cex      = 0.85,
-         number.cex  = 0.8,
-         col         = colorRampPalette(c("#f06292", "#242938", "#4fc3f7"))(200),
-         bg          = "#1a1f2e",
-         title       = "C1 — Spearman Correlation (continuous covariates)",
-         mar         = c(0, 0, 2, 0))
-
-# ── C2: Cramer's V for ordinal pairs ──────────────────────────────────────────
-cramer_v <- function(x, y) {
-  tbl  <- table(x, y)
-  chi2 <- chisq.test(tbl, simulate.p.value = TRUE)$statistic
-  k    <- min(nrow(tbl), ncol(tbl)) - 1
-  sqrt(chi2 / (sum(tbl) * k))
-}
-
-cat("\n[C2] Cramer's V (ordinal pairs):\n")
-ord_cols <- c("energy_backup_score", "safety_compliance", "maintenance_freq")
-for (i in seq_along(ord_cols)) {
-  for (j in seq_along(ord_cols)) {
-    if (j > i) {
-      v <- cramer_v(bi_freq_clean[[ord_cols[i]]], bi_freq_clean[[ord_cols[j]]])
-      cat(sprintf("  %s x %s: V = %.4f\n", ord_cols[i], ord_cols[j], v))
+  
+  total_N <- sum(counts)
+  
+  if (total_N > 0) {
+    sev_draws     <- rlnorm(total_N, meanlog_sev, sdlog_sev)
+    agg_losses[s] <- sum(sev_draws)
+    
+    idx <- 1L
+    for (i in active) {
+      k <- counts[i]
+      if (k > 0) {
+        per_pol_exp[i] <- per_pol_exp[i] + sum(sev_draws[idx:(idx + k - 1L)])
+        idx <- idx + k
+      }
     }
   }
+  
+  setTxtProgressBar(pb, s)
+}
+close(pb)
+
+
+# =============================================================================
+# 5. RISK METRICS
+# =============================================================================
+
+# ── 5.1 VaR and TVaR ──────────────────────────────────────────────────────────
+alpha_levels <- c(0.90, 0.95, 0.99, 0.995)
+
+risk_metrics <- map_dfr(alpha_levels, function(a) {
+  var_a  <- quantile(agg_losses, a)
+  tail   <- agg_losses[agg_losses > var_a]
+  tvar_a <- if (length(tail) > 0) mean(tail) else var_a
+  tibble(
+    alpha         = a,
+    level         = paste0(a * 100, "%"),
+    VaR_M         = var_a,
+    TVaR_M        = tvar_a,
+    TVaR_excess_M = tvar_a - var_a
+  )
+})
+
+var99  <- risk_metrics$VaR_M[risk_metrics$alpha == 0.99]
+var995 <- risk_metrics$VaR_M[risk_metrics$alpha == 0.995]
+
+# ── 5.2 PML ───────────────────────────────────────────────────────────────────
+n_pml      <- 30000
+pml_sz     <- rbinom(n_pml * n_pol, 1L, rep(policy_psi, n_pml)) == 1L
+pml_counts <- integer(n_pml * n_pol)
+pml_active <- which(!pml_sz)
+
+if (length(pml_active) > 0) {
+  pml_counts[pml_active] <- rnbinom(
+    length(pml_active), size = r_port,
+    mu = rep(policy_mu, n_pml)[pml_active]
+  )
 }
 
-# ── C3: Interaction plot — Energy Backup x Solar System ───────────────────────
-cat("\n[C3] Interaction: Energy Backup x Solar System (mean claim rate)\n")
-interact_df <- bi_freq_clean |>
-  group_by(solar_system, energy_backup_score) |>
-  summarise(rate = mean(has_claim), .groups = "drop")
+pml_mat    <- matrix(pml_counts, nrow = n_pol, ncol = n_pml)
+total_py   <- colSums(pml_mat)
+max_sev_py <- numeric(n_pml)
+pml_sevs   <- rlnorm(sum(total_py), meanlog_sev, sdlog_sev)
 
-interact_df |>
-  pivot_wider(names_from = solar_system, values_from = rate) |>
+idx <- 1L
+for (s in seq_len(n_pml)) {
+  k <- total_py[s]
+  if (k > 0) {
+    max_sev_py[s] <- max(pml_sevs[idx:(idx + k - 1L)])
+    idx <- idx + k
+  }
+}
+rm(pml_sz, pml_counts, pml_mat, pml_sevs)
+
+pml_table <- tibble(return_period = c(10, 25, 50, 100, 200, 250, 500)) |>
+  mutate(
+    alpha = 1 - 1 / return_period,
+    pml_M = map_dbl(alpha, ~ quantile(max_sev_py[max_sev_py > 0], .x))
+  )
+
+pml_100 <- pml_table$pml_M[pml_table$return_period == 100]
+pml_250 <- pml_table$pml_M[pml_table$return_period == 250]
+
+# ── 5.3 Exceedance curves ─────────────────────────────────────────────────────
+aep_curve <- tibble(
+  loss_M = sort(agg_losses),
+  aep    = rev(seq_along(agg_losses)) / N_SIM
+)
+
+oep_curve <- tibble(
+  loss_M = sort(max_sev_py[max_sev_py > 0]),
+  oep    = rev(seq_len(sum(max_sev_py > 0))) / n_pml
+)
+
+
+# =============================================================================
+# 6. PURE PREMIUM & GLM RATE RELATIVITIES
+# =============================================================================
+
+# ── 6.1 Portfolio pure premium ────────────────────────────────────────────────
+PP_sim        <- mean(per_pol_exp) / N_SIM
+PP_analytical <- (1 - psi_port) * mu_port * E_X
+PP_discounted <- PP_sim * discount_f
+
+# ── 6.2 GLM combined relativities — normalised to portfolio average ───────────
+glm_rel_raw <- expand_grid(
+  solar_system        = names(freq_ss_rel),
+  energy_backup_score = names(freq_ebs_rel)
+) |>
+  mutate(
+    freq_rel     = freq_ss_rel[solar_system] * freq_ebs_rel[energy_backup_score],
+    sev_rel      = sev_ss_rel[solar_system]  * sev_ebs_rel[energy_backup_score],
+    comb_rel_raw = freq_rel * sev_rel
+  )
+
+# Normalise: weighted average relativity should equal 1
+cell_counts <- freq |>
+  mutate(energy_backup_score = as.character(energy_backup_score)) |>
+  count(solar_system = as.character(solar_system), energy_backup_score)
+
+glm_rel <- glm_rel_raw |>
+  left_join(cell_counts, by = c("solar_system", "energy_backup_score")) |>
+  mutate(n = replace_na(n, 0)) |>
+  mutate(
+    norm_factor = sum(comb_rel_raw * n, na.rm = TRUE) / sum(n, na.rm = TRUE),
+    relativity  = comb_rel_raw / norm_factor
+  )
+
+
+# =============================================================================
+# 7. PRODUCT DESIGN & STRUCTURAL PRICING
+# =============================================================================
+
+# ── 7.1 Actuarial tools ───────────────────────────────────────────────────────
+lev_fn <- function(limit, ml = meanlog_sev, sl = sdlog_sev) {
+  if (limit <= 0) return(0)
+  EX <- exp(ml + sl^2 / 2)
+  EX * pnorm((log(limit) - ml - sl^2) / sl) +
+    limit * (1 - pnorm((log(limit) - ml) / sl))
+}
+
+daf_fn <- function(ded, ml = meanlog_sev, sl = sdlog_sev) {
+  EX <- exp(ml + sl^2 / 2)
+  (EX - lev_fn(ded, ml, sl)) / EX
+}
+
+ilf_fn <- function(limit, basic = 5.0) {
+  lev_fn(limit) / lev_fn(basic)
+}
+
+# ── 7.2 Benefit structure — parametric basis risk loading ─────────────────────
+# Parametric structure removes indemnity verification (operationally necessary
+# for remote space mining). Basis risk loading of 10% reflects mismatch between
+# parametric payments and actual incurred losses.
+basis_risk_load <- 0.10
+PP_parametric   <- PP_sim * (1 + basis_risk_load)
+
+# ── 7.3 Per-occurrence limit — $50M ──────────────────────────────────────────
+# $50M covers ~97% of expected severity (lognormal P97).
+# Benchmarked against PML(1-in-100); limit set at ~1x PML(1-in-100).
+POC_LIMIT_M    <- 50.0
+lev_factor     <- lev_fn(POC_LIMIT_M) / E_X
+PP_after_limit <- PP_parametric * lev_factor
+
+# ── 7.4 Deductible — $250K ───────────────────────────────────────────────────
+# DAF shows $250K removes ~6-8% of expected loss cost while eliminating
+# high-frequency small claims that are disproportionately expensive to handle
+# in a remote operations context.
+DED_M        <- 0.25
+PP_after_ded <- PP_after_limit * daf_fn(DED_M)
+
+# ── 7.5 Exclusion adjustment — 20% ───────────────────────────────────────────
+# Scheduled maintenance, pre-existing defects, cosmic radiation, wilful acts,
+# government-ordered halts. Estimated combined frequency reduction: 15–25%.
+# Midpoint of 20% applied; sensitivity tested at 15% and 25%.
+EXCL_ADJ     <- 0.80
+PP_technical <- PP_after_ded * EXCL_ADJ
+
+# ── 7.6 LEV / ILF schedule ───────────────────────────────────────────────────
+basic_limit  <- 5.0
+
+lev_schedule <- tibble(limit_M = c(1, 2, 5, 10, 15, 20, 25, 50, 75, 100, 150)) |>
+  mutate(
+    lev_M     = map_dbl(limit_M, lev_fn),
+    pct_of_EX = lev_M / E_X * 100,
+    elf_pct   = (E_X - lev_M) / E_X * 100,
+    ilf       = map_dbl(limit_M, ilf_fn),
+    pp_M      = PP_after_ded * (lev_M / E_X)
+  )
+
+# ── 7.7 Deductible schedule ───────────────────────────────────────────────────
+ded_schedule <- tibble(ded_M = c(0, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0)) |>
+  mutate(
+    daf_val    = map_dbl(ded_M, daf_fn),
+    credit_pct = (1 - daf_val) * 100,
+    pp_M       = PP_after_limit * daf_val
+  )
+
+
+# =============================================================================
+# 8. GROSS PREMIUM
+# =============================================================================
+
+# ── 8.1 Loading assumptions ───────────────────────────────────────────────────
+exp_acquisition <- 0.15   # commission / broker
+exp_admin       <- 0.08   # admin, compliance, systems
+exp_claims      <- 0.05   # claims handling (lower for parametric product)
+exp_total       <- exp_acquisition + exp_admin + exp_claims
+profit_load     <- 0.12   # target underwriting margin — reflects novel line uncertainty
+
+# Risk margin: 0.5 × CoV of aggregate loss distribution (parameter uncertainty proxy)
+cov_agg     <- sd(agg_losses) / mean(agg_losses)
+risk_margin <- max(round(cov_agg * 0.5, 2), 0.10)
+
+# ── 8.2 Gross premium ────────────────────────────────────────────────────────
+PP_risk_adj <- PP_technical * (1 + risk_margin)
+GP_denom    <- 1 - exp_total - profit_load
+GP          <- PP_risk_adj / GP_denom
+loss_ratio  <- PP_technical / GP
+
+# ── 8.3 Final rate table: base GP × GLM relativities ─────────────────────────
+rate_table <- glm_rel |>
+  mutate(
+    gross_prem_M = GP * relativity,
+    gross_prem   = round(gross_prem_M * 1e6),
+    solar_system = factor(solar_system, levels = levels(freq$solar_system)),
+    energy_backup_score = factor(energy_backup_score, levels = 1:5, ordered = TRUE)
+  ) |>
+  arrange(solar_system, energy_backup_score)
+
+# ── 8.4 Sensitivity analysis ──────────────────────────────────────────────────
+sensitivity <- tribble(
+  ~Scenario,                            ~pp_d,  ~exp_d, ~prof_d, ~rm_d,
+  "Base case",                           0.00,   0.00,   0.00,    0.00,
+  "Frequency +10%",                      0.10,   0.00,   0.00,    0.00,
+  "Frequency -10%",                     -0.10,   0.00,   0.00,    0.00,
+  "Severity +15%",                       0.15,   0.00,   0.00,    0.00,
+  "Severity -15%",                      -0.15,   0.00,   0.00,    0.00,
+  "Exclusion adj 15% (vs 20% base)",     0.06,   0.00,   0.00,    0.00,
+  "Exclusion adj 25% (vs 20% base)",    -0.06,   0.00,   0.00,    0.00,
+  "Expense load +5pp",                   0.00,   0.05,   0.00,    0.00,
+  "Profit margin +5pp",                  0.00,   0.00,   0.05,    0.00,
+  "Risk margin +5pp",                    0.00,   0.00,   0.00,    0.05,
+  "Adverse combined (+10% / +2pp)",      0.10,   0.02,   0.02,    0.02,
+  "Favourable combined (-10% / -2pp)",  -0.10,  -0.02,   0.00,   -0.02
+) |>
+  mutate(
+    gp_M        = pmap_dbl(list(pp_d, exp_d, prof_d, rm_d), function(p, e, pr, r) {
+      pp_s <- PP_technical * (1 + p) * (1 + risk_margin + r)
+      pp_s / (1 - exp_total - e - profit_load - pr)
+    }),
+    vs_base_pct = (gp_M / GP - 1) * 100
+  )
+
+
+# =============================================================================
+# 9. PLOTS — CLEAN WHITE THEME
+# =============================================================================
+
+clean_theme <- theme_minimal(base_size = 11) +
+  theme(
+    plot.background   = element_rect(fill = "white", colour = NA),
+    panel.background  = element_rect(fill = "white", colour = NA),
+    panel.grid.major  = element_line(colour = "grey90", linewidth = 0.4),
+    panel.grid.minor  = element_blank(),
+    axis.text         = element_text(colour = "grey30", size = 9),
+    axis.title        = element_text(colour = "grey20", size = 10),
+    plot.title        = element_text(colour = "grey10", size = 12, face = "bold",
+                                     margin = margin(b = 4)),
+    plot.subtitle     = element_text(colour = "grey40", size = 9,
+                                     margin = margin(b = 8)),
+    plot.caption      = element_text(colour = "grey50", size = 8,
+                                     hjust = 0, margin = margin(t = 8)),
+    legend.background = element_rect(fill = "white", colour = "grey85"),
+    legend.text       = element_text(colour = "grey20", size = 9),
+    legend.title      = element_text(colour = "grey20", size = 9),
+    strip.background  = element_rect(fill = "grey95", colour = NA),
+    strip.text        = element_text(colour = "grey20", size = 9, face = "bold"),
+    axis.ticks        = element_line(colour = "grey80"),
+    plot.margin       = margin(10, 14, 10, 14)
+  )
+
+# ── Exhibit 1: Aggregate loss distribution ────────────────────────────────────
+ex1 <- ggplot(tibble(x = agg_losses), aes(x = x)) +
+  geom_histogram(bins = 70, fill = "steelblue", alpha = 0.7, colour = NA) +
+  geom_vline(xintercept = mean(agg_losses), colour = "darkgreen",
+             linewidth = 1.1, linetype = "dashed") +
+  geom_vline(xintercept = var99,  colour = "firebrick",
+             linewidth = 1.1, linetype = "dotted") +
+  geom_vline(xintercept = var995, colour = "darkorange",
+             linewidth = 1.0, linetype = "dotted") +
+  annotate("text", x = mean(agg_losses), y = Inf,
+           label = sprintf("Mean\n$%.0fM", mean(agg_losses)),
+           colour = "darkgreen", size = 3, hjust = -0.1, vjust = 1.4) +
+  annotate("text", x = var99, y = Inf,
+           label = sprintf("VaR(99%%)\n$%.0fM", var99),
+           colour = "firebrick", size = 3, hjust = -0.1, vjust = 1.4) +
+  annotate("text", x = var995, y = Inf,
+           label = sprintf("VaR(99.5%%)\n$%.0fM", var995),
+           colour = "darkorange", size = 3, hjust = -0.1, vjust = 3.5) +
+  scale_x_continuous(labels = label_dollar(suffix = "M", scale = 1),
+                     expand = expansion(mult = c(0.01, 0.06))) +
+  scale_y_continuous(labels = label_comma()) +
+  labs(
+    title    = "Exhibit 1 — Annual Aggregate BI Loss Distribution",
+    subtitle = sprintf("Policy-by-policy simulation  |  %s years  |  %s policies",
+                       comma(N_SIM), comma(n_pol)),
+    x = "Annual Aggregate Loss ($M)", y = "Frequency"
+  ) +
+  clean_theme
+print(ex1)
+
+# ── Exhibit 2: AEP and OEP curves ────────────────────────────────────────────
+p_aep <- ggplot(aep_curve |> filter(aep >= 0.0005), aes(x = loss_M, y = aep)) +
+  geom_line(colour = "steelblue", linewidth = 1.3) +
+  geom_hline(yintercept = 0.01,  colour = "firebrick",  linewidth = 0.9,
+             linetype = "dashed") +
+  geom_hline(yintercept = 0.005, colour = "darkorange", linewidth = 0.9,
+             linetype = "dotted") +
+  annotate("text", x = var99  * 1.04, y = 0.013,
+           label = sprintf("VaR(99%%)\n$%.0fM", var99),
+           colour = "firebrick", size = 3, hjust = 0) +
+  annotate("text", x = var995 * 1.04, y = 0.007,
+           label = sprintf("VaR(99.5%%)\n$%.0fM", var995),
+           colour = "darkorange", size = 3, hjust = 0) +
+  scale_x_continuous(labels = label_dollar(suffix = "M", scale = 1)) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.01), trans = "log10") +
+  labs(title = "AEP — Aggregate Exceedance Probability",
+       x = "Annual Aggregate Loss ($M)",
+       y = "Exceedance Probability (log scale)") +
+  clean_theme
+
+p_oep <- ggplot(oep_curve |> filter(oep >= 0.0005), aes(x = loss_M, y = oep)) +
+  geom_line(colour = "steelblue", linewidth = 1.3) +
+  geom_vline(xintercept = pml_100, colour = "firebrick",  linewidth = 1.0,
+             linetype = "dashed") +
+  geom_vline(xintercept = pml_250, colour = "darkorange", linewidth = 0.9,
+             linetype = "dotted") +
+  annotate("text", x = pml_100 * 1.04, y = max(oep_curve$oep) * 0.4,
+           label = sprintf("PML 1-in-100\n$%.0fM", pml_100),
+           colour = "firebrick", size = 3, hjust = 0) +
+  annotate("text", x = pml_250 * 1.04, y = max(oep_curve$oep) * 0.15,
+           label = sprintf("PML 1-in-250\n$%.0fM", pml_250),
+           colour = "darkorange", size = 3, hjust = 0) +
+  scale_x_continuous(labels = label_dollar(suffix = "M", scale = 1)) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.01), trans = "log10") +
+  labs(title = "OEP — Occurrence Exceedance Probability",
+       x = "Single Occurrence Loss ($M)",
+       y = "Exceedance Probability (log scale)") +
+  clean_theme
+
+ex2 <- grid.arrange(p_aep, p_oep, ncol = 2,
+                    top = textGrob("Exhibit 2 — Exceedance Probability Curves",
+                                   gp = gpar(fontsize = 12, fontface = "bold")))
+
+# ── Exhibit 3: VaR vs TVaR ────────────────────────────────────────────────────
+ex3 <- risk_metrics |>
+  select(level, VaR_M, TVaR_M) |>
+  pivot_longer(c(VaR_M, TVaR_M), names_to = "Metric", values_to = "Value_M") |>
+  mutate(Metric = recode(Metric, "VaR_M" = "VaR", "TVaR_M" = "TVaR")) |>
+  ggplot(aes(x = level, y = Value_M, fill = Metric)) +
+  geom_col(position = "dodge", alpha = 0.8, width = 0.6) +
+  geom_text(aes(label = sprintf("$%.0fM", Value_M)),
+            position = position_dodge(width = 0.6),
+            vjust = -0.5, size = 3) +
+  scale_fill_manual(values = c("VaR" = "steelblue", "TVaR" = "firebrick")) +
+  scale_y_continuous(labels = label_dollar(suffix = "M", scale = 1),
+                     expand = expansion(mult = c(0, 0.15))) +
+  labs(title    = "Exhibit 3 — Aggregate VaR and TVaR by Confidence Level",
+       subtitle = "TVaR = expected loss conditional on exceeding VaR",
+       x = "Confidence Level", y = "Loss ($M)", fill = NULL) +
+  clean_theme +
+  theme(legend.position = "top")
+print(ex3)
+
+# ── Exhibit 4: GLM rating relativities ───────────────────────────────────────
+rel_plot_df <- bind_rows(
+  tibble(component = "Frequency",
+         variable  = rep(c("Solar System", "Energy Backup Score"), c(3, 5)),
+         level     = c(names(freq_ss_rel), paste0("Score ", names(freq_ebs_rel))),
+         rel       = c(as.numeric(freq_ss_rel), as.numeric(freq_ebs_rel))),
+  tibble(component = "Severity",
+         variable  = rep(c("Solar System", "Energy Backup Score"), c(3, 5)),
+         level     = c(names(sev_ss_rel), paste0("Score ", names(sev_ebs_rel))),
+         rel       = c(as.numeric(sev_ss_rel), as.numeric(sev_ebs_rel)))
+)
+
+ex4 <- ggplot(rel_plot_df, aes(x = level, y = rel, fill = rel > 1)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  geom_hline(yintercept = 1, colour = "grey40", linewidth = 0.9,
+             linetype = "dashed") +
+  geom_text(aes(label = sprintf("%.3f", rel),
+                vjust = if_else(rel >= 1, -0.4, 1.4)),
+            size = 3) +
+  scale_fill_manual(values = c("TRUE" = "firebrick", "FALSE" = "steelblue"),
+                    labels  = c("TRUE" = "Above base", "FALSE" = "Below base")) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  facet_grid(component ~ variable, scales = "free_x") +
+  labs(title    = "Exhibit 4 — GLM-Derived Rating Relativities",
+       subtitle = "Reference level: Zeta / Energy Backup Score 1",
+       x = NULL, y = "Relativity", fill = NULL) +
+  clean_theme +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1),
+        legend.position = "top")
+print(ex4)
+
+# ── Exhibit 5: LEV curve ──────────────────────────────────────────────────────
+lev_curve_df <- tibble(limit = seq(0.1, 150, by = 0.5)) |>
+  mutate(lev_val = map_dbl(limit, lev_fn))
+
+ex5 <- ggplot(lev_curve_df, aes(x = limit, y = lev_val)) +
+  geom_line(colour = "steelblue", linewidth = 1.3) +
+  geom_hline(yintercept = E_X, colour = "grey50", linewidth = 0.8,
+             linetype = "dashed") +
+  geom_vline(xintercept = POC_LIMIT_M, colour = "firebrick", linewidth = 1.0,
+             linetype = "dotted") +
+  annotate("text", x = POC_LIMIT_M + 2, y = E_X * 0.3,
+           label = sprintf("Selected limit\n$%.0fM", POC_LIMIT_M),
+           colour = "firebrick", size = 3, hjust = 0) +
+  annotate("text", x = 140, y = E_X * 1.05,
+           label = sprintf("E[X] = $%.2fM", E_X),
+           colour = "grey40", size = 3, hjust = 1) +
+  scale_x_continuous(labels = label_dollar(suffix = "M", scale = 1)) +
+  scale_y_continuous(labels = label_dollar(suffix = "M", scale = 1)) +
+  labs(title    = "Exhibit 5 — Limited Expected Value (LEV) Curve",
+       subtitle = "E[min(X, d)]  |  Asymptotes to E[X] as limit increases",
+       x = "Per-Occurrence Limit ($M)", y = "LEV ($M)") +
+  clean_theme
+print(ex5)
+
+# ── Exhibit 6: Premium waterfall ──────────────────────────────────────────────
+waterfall <- tibble(
+  stage = factor(
+    c("Base PP", "+Basis risk", "×LEV limit", "×DAF ded",
+      "×Excl adj", "×Risk margin", "÷(1−exp−profit)"),
+    levels = c("Base PP", "+Basis risk", "×LEV limit", "×DAF ded",
+               "×Excl adj", "×Risk margin", "÷(1−exp−profit)")
+  ),
+  value    = c(PP_sim, PP_parametric, PP_after_limit, PP_after_ded,
+               PP_technical, PP_risk_adj, GP),
+  is_final = c(rep(FALSE, 6), TRUE)
+)
+
+ex6 <- ggplot(waterfall, aes(x = stage, y = value, fill = is_final)) +
+  geom_col(alpha = 0.8, width = 0.65) +
+  geom_text(aes(label = sprintf("$%.5fM", value)),
+            vjust = -0.5, size = 3) +
+  scale_fill_manual(values = c("FALSE" = "steelblue", "TRUE" = "darkorange")) +
+  scale_y_continuous(labels = label_dollar(suffix = "M", scale = 1),
+                     expand = expansion(mult = c(0, 0.18))) +
+  labs(title    = "Exhibit 6 — Premium Build-Up",
+       subtitle = sprintf("Base PP: $%.5fM  →  Gross Premium: $%.5fM  |  Loss ratio: %.1f%%",
+                          PP_sim, GP, loss_ratio * 100),
+       x = NULL, y = "Premium ($M per policy / year)") +
+  clean_theme +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1),
+        legend.position = "none")
+print(ex6)
+
+# ── Exhibit 7: Sensitivity tornado ───────────────────────────────────────────
+ex7 <- sensitivity |>
+  filter(Scenario != "Base case") |>
+  mutate(Scenario  = fct_reorder(Scenario, abs(vs_base_pct)),
+         Direction = if_else(vs_base_pct > 0, "Adverse", "Favourable")) |>
+  ggplot(aes(x = vs_base_pct, y = Scenario, fill = Direction)) +
+  geom_col(alpha = 0.8, width = 0.65) +
+  geom_vline(xintercept = 0, colour = "grey30", linewidth = 0.8) +
+  geom_text(aes(label = sprintf("%+.1f%%", vs_base_pct),
+                hjust = if_else(vs_base_pct >= 0, -0.2, 1.2)),
+            size = 3) +
+  scale_fill_manual(values = c("Adverse" = "firebrick", "Favourable" = "steelblue")) +
+  scale_x_continuous(labels = function(x) paste0(x, "%"),
+                     expand = expansion(mult = 0.15)) +
+  labs(title    = "Exhibit 7 — Gross Premium Sensitivity",
+       subtitle = sprintf("Base gross premium: $%.5fM per policy per year", GP),
+       x = "Change vs Base Case (%)", y = NULL, fill = NULL) +
+  clean_theme +
+  theme(legend.position = "top")
+print(ex7)
+
+# ── Exhibit 8: Rate table heatmap ─────────────────────────────────────────────
+ex8 <- rate_table |>
+  ggplot(aes(x = energy_backup_score, y = solar_system, fill = gross_prem_M)) +
+  geom_tile(colour = "white", linewidth = 1.0) +
+  geom_text(aes(label = paste0(
+    scales::dollar(round(gross_prem_M * 1e6 / 1000), suffix = "K", prefix = "$"), "\n",
+    sprintf("(%.3f)", relativity)
+  )), size = 3.2) +
+  scale_fill_gradient2(low = "steelblue", mid = "white", high = "firebrick",
+                       midpoint = GP,
+                       labels = label_dollar(suffix = "M", scale = 1)) +
+  labs(title    = "Exhibit 8 — Indicative Gross Premium Rate Table",
+       subtitle = "Annual gross premium per policy  |  Relativity shown in parentheses",
+       x = "Energy Backup Score", y = "Solar System",
+       fill = "Gross Premium ($M)") +
+  clean_theme
+print(ex8)
+
+
+# =============================================================================
+# 10. FORMATTED TABLES
+# =============================================================================
+
+# ── Table 1: Data cleaning summary ────────────────────────────────────────────
+tibble(
+  Dataset           = c("Frequency", "Severity"),
+  `Raw Records`     = c(n_freq_raw,  n_sev_raw),
+  `Clean Records`   = c(n_freq_cln,  n_sev_cln),
+  `Records Removed` = c(n_freq_raw - n_freq_cln, n_sev_raw - n_sev_cln),
+  `% Removed`       = c((1 - n_freq_cln / n_freq_raw) * 100,
+                        (1 - n_sev_cln  / n_sev_raw)  * 100)
+) |>
+  gt() |>
+  tab_header(title = "Table 1 — Data Cleaning Summary") |>
+  fmt_integer(columns = c(`Raw Records`, `Clean Records`, `Records Removed`)) |>
+  fmt_number(columns = `% Removed`, decimals = 2, pattern = "{x}%") |>
+  cols_align(align = "left",   columns = Dataset) |>
+  cols_align(align = "center", columns = -Dataset) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
   print()
 
-p_c3 <- ggplot(interact_df,
-               aes(x = energy_backup_score, y = rate,
-                   colour = solar_system, group = solar_system)) +
-  geom_line(linewidth = 1.3) +
-  geom_point(size = 3) +
-  scale_colour_manual(values = c(
-    "Helionis Cluster" = "#4fc3f7",
-    "Epsilon"          = "#f06292",
-    "Zeta"             = "#a5d6a7"
-  )) +
-  labs(title  = "C3 — Interaction: Energy Backup Score x Solar System",
-       x      = "Energy Backup Score",
-       y      = "Claim Rate",
-       colour = "Solar System") +
-  theme_dark() +
-  theme(plot.title      = element_text(face = "bold"),
-        legend.position = "top")
-print(p_c3)
-
-# ── C4: Maintenance x Safety compliance heatmap ───────────────────────────────
-pivot_hm <- bi_freq_clean |>
-  group_by(maintenance_freq, safety_compliance) |>
-  summarise(rate = mean(has_claim), .groups = "drop")
-
-p_c4 <- ggplot(pivot_hm, aes(x = factor(safety_compliance),
-                             y = factor(maintenance_freq),
-                             fill = rate)) +
-  geom_tile(colour = "#1a1f2e", linewidth = 0.5) +
-  geom_text(aes(label = sprintf("%.1f%%", rate * 100)),
-            size = 3, colour = "white") +
-  scale_fill_gradient(low = "#242938", high = "#f06292",
-                      labels = scales::percent) +
-  labs(title = "C4 — Interaction: Maint. Freq x Safety Compliance (claim rate)",
-       x     = "Safety Compliance",
-       y     = "Maintenance Frequency",
-       fill  = "Claim Rate") +
-  theme_dark() +
-  theme(plot.title = element_text(face = "bold"))
-print(p_c4)
-
-
-# =============================================================================
-# SECTION D — TAIL ANALYSIS & DISTRIBUTION FITTING
-# =============================================================================
-cat("\n===== SECTION D — TAIL ANALYSIS & DISTRIBUTION FITTING =====\n")
-
-ca   <- bi_sev_clean$claim_amount
-ca_m <- ca / 1e6   # scale to $M — prevents MLE numerical overflow (error code 100)
-# fitdist() uses finite-difference gradients; raw values in
-# the tens-of-millions cause non-finite steps on Gamma/Weibull.
-# Shape parameters are scale-invariant; only scale/rate params
-# need back-transforming (x 1e6) when reporting.
-
-# ── D1: Log-log survival plot ─────────────────────────────────────────────────
-cat("\n[D1] Log-log survival plot — Pareto tail test\n")
-sorted_ca <- sort(ca)
-n_sev     <- length(ca)
-surv_prob <- 1 - seq_along(sorted_ca) / n_sev
-
-idx_tail   <- floor(0.80 * n_sev)
-log_x_tail <- log10(sorted_ca[idx_tail:n_sev] / 1e6)
-log_s_tail <- log10(surv_prob[idx_tail:n_sev] + 1e-9)
-tail_lm    <- lm(log_s_tail ~ log_x_tail)
-
-cat(sprintf("  Tail slope (log-log): %.3f  |  R^2 = %.4f\n",
-            coef(tail_lm)[2], summary(tail_lm)$r.squared))
-cat(sprintf("  -> Pareto shape alpha ~= %.3f  (|slope| on log-log)\n",
-            abs(coef(tail_lm)[2])))
-
-loglog_df    <- tibble(log_x = log10(sorted_ca / 1e6),
-                       log_s = log10(surv_prob + 1e-9))
-tail_line_df <- tibble(log_x  = log_x_tail,
-                       fitted = coef(tail_lm)[1] + coef(tail_lm)[2] * log_x_tail)
-
-p_d1 <- ggplot(loglog_df, aes(x = log_x, y = log_s)) +
-  geom_point(colour = "#4fc3f7", size = 0.8, alpha = 0.4) +
-  geom_line(data = tail_line_df, aes(x = log_x, y = fitted),
-            colour = "#f06292", linewidth = 1.2, linetype = "dashed") +
-  annotate("text", x = Inf, y = Inf, hjust = 1.1, vjust = 1.5,
-           label = sprintf("Tail slope = %.2f\nR^2 = %.3f\nPareto alpha ~= %.2f",
-                           coef(tail_lm)[2],
-                           summary(tail_lm)$r.squared,
-                           abs(coef(tail_lm)[2])),
-           colour = "#ffb74d", size = 3.2) +
-  labs(title    = "D1 — Log-Log Survival Plot (CCDF)",
-       subtitle = "Straight line = Pareto tail  |  Dashed = top-20% tail fit",
-       x        = "log10 Claim Amount ($M)",
-       y        = "log10 P(X > x)") +
-  theme_dark() +
-  theme(plot.title    = element_text(face = "bold"),
-        plot.subtitle = element_text(colour = "grey70"))
-print(p_d1)
-
-# ── D2: Mean Excess Function ──────────────────────────────────────────────────
-cat("\n[D2] Mean Excess Function\n")
-pct_seq <- seq(10, 95, by = 5)
-mef_tbl <- tibble(
-  pct       = pct_seq,
-  threshold = quantile(ca, pct_seq / 100),
-  n_above   = map_int(threshold, ~ sum(ca > .x)),
-  mef       = map2_dbl(threshold, n_above,
-                       ~ if (.y > 20) mean(ca[ca > .x] - .x) else NA_real_)
+# ── Table 2: Fitted model parameters ──────────────────────────────────────────
+tibble(
+  Parameter = c("ZINB — Structural zero probability (ψ)",
+                "ZINB — Mean claim rate (μ)",
+                "ZINB — Dispersion (r)",
+                "ZINB — Expected frequency E[N]",
+                "Lognormal — meanlog",
+                "Lognormal — sdlog",
+                "Lognormal — Expected severity E[X] ($M)",
+                "CPI trend factor (mean)",
+                "1-year spot rate",
+                "Discount factor"),
+  Value     = c(psi_port, mu_port, r_port,
+                (1 - psi_port) * mu_port,
+                meanlog_sev, sdlog_sev, E_X,
+                mean_trend, spot_1y, discount_f)
 ) |>
-  filter(!is.na(mef))
-print(mef_tbl |> mutate(threshold = round(threshold), mef = round(mef)))
+  gt() |>
+  tab_header(title = "Table 2 — Fitted Model Parameters") |>
+  fmt_number(columns = Value, decimals = 5) |>
+  cols_align(align = "left",   columns = Parameter) |>
+  cols_align(align = "center", columns = Value) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
+  print()
 
-mef_slope <- lm(mef ~ threshold, data = mef_tbl)
-cat(sprintf("  MEF slope = %.4f  -> %s\n", coef(mef_slope)[2],
-            ifelse(coef(mef_slope)[2] > 0,
-                   "INCREASING — heavy tail confirmed (Lognormal or Pareto)",
-                   "FLAT/DECREASING — lighter tail")))
+# ── Table 3: Risk metrics ──────────────────────────────────────────────────────
+risk_metrics |>
+  select(Level = level,
+         `VaR ($M)`         = VaR_M,
+         `TVaR ($M)`        = TVaR_M,
+         `TVaR Excess ($M)` = TVaR_excess_M) |>
+  gt() |>
+  tab_header(title = "Table 3 — Aggregate Risk Metrics (Annual Portfolio)") |>
+  fmt_number(columns = -Level, decimals = 2) |>
+  cols_align(align = "left",   columns = Level) |>
+  cols_align(align = "center", columns = -Level) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
+  print()
 
-p_d2 <- ggplot(mef_tbl, aes(x = threshold / 1e6, y = mef / 1e6)) +
-  geom_ribbon(aes(
-    ymin = (mef - 1.96 * (mef / sqrt(n_above))) / 1e6,
-    ymax = (mef + 1.96 * (mef / sqrt(n_above))) / 1e6
-  ), fill = "#4fc3f7", alpha = 0.2) +
-  geom_line(colour = "#4fc3f7", linewidth = 1.5) +
-  geom_smooth(method = "lm", colour = "#f06292", linetype = "dashed",
-              linewidth = 1, se = FALSE) +
-  annotate("text", x = Inf, y = Inf, hjust = 1.1, vjust = 1.5,
-           label = sprintf("MEF slope = %.2f\n-> Increasing -> heavy tail",
-                           coef(mef_slope)[2]),
-           colour = "#ffb74d", size = 3.2) +
-  labs(title    = "D2 — Mean Excess Function",
-       subtitle = "Increasing MEF -> heavy-tailed distribution (Lognormal / Pareto)",
-       x        = "Threshold ($M)",
-       y        = "E[X - u | X > u]  ($M)") +
-  theme_dark() +
-  theme(plot.title    = element_text(face = "bold"),
-        plot.subtitle = element_text(colour = "grey70"))
-print(p_d2)
+# ── Table 4: PML table ────────────────────────────────────────────────────────
+pml_table |>
+  select(`Return Period` = return_period,
+         `Alpha`         = alpha,
+         `PML ($M)`      = pml_M) |>
+  gt() |>
+  tab_header(title = "Table 4 — Probable Maximum Loss (Per-Occurrence)") |>
+  fmt_integer(columns = `Return Period`) |>
+  fmt_number(columns = `Alpha`,    decimals = 4) |>
+  fmt_number(columns = `PML ($M)`, decimals = 3) |>
+  cols_align(align = "center", columns = everything()) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
+  print()
 
-# ── D3: Distribution fitting ──────────────────────────────────────────────────
-cat("\n[D3] Distribution Fitting (on $M scale to prevent MLE error code 100)\n")
+# ── Table 5: GLM relativities ─────────────────────────────────────────────────
+bind_rows(
+  tibble(Variable  = "Solar System",
+         Level     = names(freq_ss_rel),
+         `Freq Rel`= as.numeric(freq_ss_rel),
+         `Sev Rel` = as.numeric(sev_ss_rel)),
+  tibble(Variable  = "Energy Backup Score",
+         Level     = paste0("Score ", names(freq_ebs_rel)),
+         `Freq Rel`= as.numeric(freq_ebs_rel),
+         `Sev Rel` = as.numeric(sev_ebs_rel))
+) |>
+  mutate(`Combined Rel` = `Freq Rel` * `Sev Rel`) |>
+  gt() |>
+  tab_header(title    = "Table 5 — GLM Rating Relativities",
+             subtitle = "Reference: Zeta / Energy Backup Score 1  |  Combined = Freq × Sev") |>
+  fmt_number(columns = c(`Freq Rel`, `Sev Rel`, `Combined Rel`), decimals = 4) |>
+  cols_align(align = "left",   columns = c(Variable, Level)) |>
+  cols_align(align = "center", columns = c(`Freq Rel`, `Sev Rel`, `Combined Rel`)) |>
+  tab_row_group(label = "Solar System",        rows = Variable == "Solar System") |>
+  tab_row_group(label = "Energy Backup Score", rows = Variable == "Energy Backup Score") |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold",
+              row_group.font.weight = "bold") |>
+  print()
 
-fit_ln <- fitdist(ca_m, "lnorm")
-fit_gm <- fitdist(ca_m, "gamma")
-fit_wb <- fitdist(ca_m, "weibull")
+# ── Table 6: LEV / ILF schedule ───────────────────────────────────────────────
+lev_schedule |>
+  transmute(`Limit ($M)`       = limit_M,
+            `LEV ($M)`         = lev_M,
+            `% of E[X]`        = pct_of_EX,
+            `ELF (%)`          = elf_pct,
+            `ILF`              = ilf,
+            `PP at Limit ($M)` = pp_M) |>
+  gt() |>
+  tab_header(title    = "Table 6 — LEV / ILF Schedule",
+             subtitle = "Basic limit = $5M  |  Selected limit highlighted") |>
+  fmt_number(columns = `Limit ($M)`,       decimals = 0) |>
+  fmt_number(columns = `LEV ($M)`,         decimals = 4) |>
+  fmt_number(columns = c(`% of E[X]`, `ELF (%)`), decimals = 2) |>
+  fmt_number(columns = `ILF`,              decimals = 4) |>
+  fmt_number(columns = `PP at Limit ($M)`, decimals = 5) |>
+  tab_style(style = cell_fill(color = "#fff9c4"),
+            locations = cells_body(rows = `Limit ($M)` == 50)) |>
+  cols_align(align = "center", columns = everything()) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
+  print()
 
-gof <- gofstat(list(fit_ln, fit_gm, fit_wb),
-               fitnames = c("Lognormal", "Gamma", "Weibull"))
-cat("\n  AIC:\n");     print(gof$aic)
-cat("\n  BIC:\n");     print(gof$bic)
-cat("\n  KS stat:\n"); print(gof$ks)
+# ── Table 7: Deductible schedule ──────────────────────────────────────────────
+ded_schedule |>
+  transmute(`Deductible ($M)`       = ded_M,
+            `DAF`                   = daf_val,
+            `Premium Credit (%)`    = credit_pct,
+            `PP at Deductible ($M)` = pp_M) |>
+  gt() |>
+  tab_header(title    = "Table 7 — Deductible Adjustment Factor Schedule",
+             subtitle = "DAF = fraction of expected loss cost above deductible  |  Selected deductible highlighted") |>
+  fmt_number(columns = `Deductible ($M)`,      decimals = 2) |>
+  fmt_number(columns = `DAF`,                  decimals = 4) |>
+  fmt_number(columns = `Premium Credit (%)`,   decimals = 2) |>
+  fmt_number(columns = `PP at Deductible ($M)`,decimals = 5) |>
+  tab_style(style = cell_fill(color = "#fff9c4"),
+            locations = cells_body(rows = `Deductible ($M)` == 0.25)) |>
+  cols_align(align = "center", columns = everything()) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
+  print()
 
-best <- names(which.min(gof$aic))
-cat(sprintf("\n  -> Best fit by AIC: %s\n", best))
+# ── Table 8: Premium build-up ─────────────────────────────────────────────────
+tibble(
+  Stage          = c("Base pure premium (simulated)",
+                     "After parametric basis risk load (+10%)",
+                     "After per-occurrence limit — LEV($50M)",
+                     "After deductible — DAF($250K)",
+                     "After exclusion adjustment (×0.80)",
+                     "After risk margin",
+                     "Gross premium"),
+  `Premium ($M)` = c(PP_sim, PP_parametric, PP_after_limit,
+                     PP_after_ded, PP_technical, PP_risk_adj, GP),
+  Adjustment     = c("—",
+                     "+10.00%",
+                     sprintf("×%.4f", lev_fn(POC_LIMIT_M) / E_X),
+                     sprintf("×%.4f", daf_fn(DED_M)),
+                     "×0.8000",
+                     sprintf("×%.4f", 1 + risk_margin),
+                     sprintf("÷%.4f", 1 - exp_total - profit_load))
+) |>
+  gt() |>
+  tab_header(title = "Table 8 — Premium Build-Up") |>
+  fmt_number(columns = `Premium ($M)`, decimals = 6) |>
+  cols_align(align = "left",   columns = c(Stage, Adjustment)) |>
+  cols_align(align = "center", columns = `Premium ($M)`) |>
+  tab_style(style = list(cell_fill(color = "#fff9c4"),
+                         cell_text(weight = "bold")),
+            locations = cells_body(rows = Stage == "Gross premium")) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
+  print()
 
-# Back-transform parameters to $ scale for reporting
-mu_ln  <- fit_ln$estimate["meanlog"] + log(1e6)
-sig_ln <- fit_ln$estimate["sdlog"]
-cat(sprintf("\n  Lognormal ($ scale):  meanlog = %.4f  sdlog = %.4f\n", mu_ln, sig_ln))
-cat(sprintf("    -> E[X] = $%.0f  (observed mean = $%.0f)\n",
-            exp(mu_ln + sig_ln^2 / 2), mean(ca)))
-cat(sprintf("\n  Gamma ($ scale):  shape = %.4f  scale = $%.0f\n",
-            fit_gm$estimate["shape"],
-            fit_gm$estimate["rate"]^-1 * 1e6))
+# ── Table 9: Rate table ───────────────────────────────────────────────────────
+rate_table |>
+  transmute(`Solar System`        = as.character(solar_system),
+            `Energy Backup Score` = as.character(energy_backup_score),
+            `Freq Rel`            = round(freq_rel, 4),
+            `Sev Rel`             = round(sev_rel, 4),
+            `Combined Rel`        = round(relativity, 4),
+            `Gross Premium`       = dollar(gross_prem, big.mark = ",")) |>
+  gt() |>
+  tab_header(title    = "Table 9 — Indicative Gross Premium Rate Table",
+             subtitle = "Annual premium per policy  |  GLM relativities applied to portfolio base rate") |>
+  cols_align(align = "left",   columns = c(`Solar System`, `Energy Backup Score`)) |>
+  cols_align(align = "center", columns = c(`Freq Rel`, `Sev Rel`,
+                                           `Combined Rel`, `Gross Premium`)) |>
+  tab_row_group(label = "Helionis Cluster",
+                rows  = `Solar System` == "Helionis Cluster") |>
+  tab_row_group(label = "Epsilon",
+                rows  = `Solar System` == "Epsilon") |>
+  tab_row_group(label = "Zeta",
+                rows  = `Solar System` == "Zeta") |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold",
+              row_group.font.weight = "bold") |>
+  print()
 
-# Density comparison — fitcol controls fitted line colours
-# (col would conflict with denscomp's internal histogram colour argument)
-denscomp(list(fit_ln, fit_gm, fit_wb),
-         legendtext = c("Lognormal", "Gamma", "Weibull"),
-         main       = "D3a — Density Comparison: BI Severity ($M)",
-         xlab       = "Claim Amount ($M)",
-         fitcol     = c("#4fc3f7", "#f06292", "#a5d6a7"),
-         fitlty     = c(1, 2, 3),
-         fitlwd     = 2)
-
-qqcomp(list(fit_ln, fit_gm),
-       legendtext = c("Lognormal", "Gamma"),
-       main       = "D3b — Q-Q Plot: Lognormal vs Gamma ($M)",
-       fitcol     = c("#4fc3f7", "#f06292"),
-       fitpch     = c(16, 17))
-
-ppcomp(list(fit_ln, fit_gm),
-       legendtext = c("Lognormal", "Gamma"),
-       main       = "D3c — P-P Plot: Lognormal vs Gamma ($M)",
-       fitcol     = c("#4fc3f7", "#f06292"),
-       fitpch     = c(16, 17))
-
-
-# =============================================================================
-# SUMMARY CONCLUSIONS
-# =============================================================================
-cat("\n")
-cat(rep("=", 65), "\n", sep = "")
-cat("SUMMARY OF EDA FINDINGS — BUSINESS INTERRUPTION\n")
-cat(rep("=", 65), "\n", sep = "")
-
-cat("\nFREQUENCY MODELLING RECOMMENDATION:\n")
-cat(sprintf("  VMR = %.3f -> Overdispersed\n", var(cc) / mean(cc)))
-cat(sprintf("  Excess zeros = +%.2f pp above Poisson\n",
-            (mean(cc == 0) - exp(-mean(cc))) * 100))
-cat("  -> Use ZINB (Zero-Inflated Negative Binomial)\n")
-cat("  -> Candidate covariates: all 6 (no collinearity detected)\n")
-cat("  -> Test interactions: energy_backup x solar_system\n")
-cat("  -> Exposure should enter as offset: offset(log(exposure))\n")
-
-cat("\nSEVERITY MODELLING RECOMMENDATION:\n")
-cat(sprintf("  Skewness = %.2f  CoV = %.3f\n", skewness(ca), sd(ca) / mean(ca)))
-cat("  MEF is increasing -> heavy tail confirmed\n")
-cat(sprintf("  -> Primary candidate: %s (best AIC/BIC)\n", best))
-cat(sprintf("  -> Fitted Lognormal: meanlog = %.4f  sdlog = %.4f\n",
-            fit_ln$estimate["meanlog"] + log(1e6),
-            fit_ln$estimate["sdlog"]))
-cat(sprintf("  -> Consider Pareto/Burr for extreme tail (P99 = $%.1fM)\n",
-            quantile(ca, 0.99) / 1e6))
-cat("  -> Apply CPI trend factors before final fitting (see D4)\n")
-
-cat("\nDATA NOTES:\n")
-cat("  * solar_system corrupted labels fixed via str_extract()\n")
-cat("  * 2,516 FREQ rows dropped (2.52%); 200 SEV rows dropped (1.99%)\n")
-cat("  * BI severity has no year column -> year-by-year trending not directly possible\n")
-cat("  * DD claim_amount max (~$1.4M) is a data dictionary error; actual max ~$142M\n")
-cat("  * fitdist() run on $M scale to avoid MLE error code 100 (numerical overflow)\n")
+# ── Table 10: Sensitivity analysis ────────────────────────────────────────────
+sensitivity |>
+  transmute(Scenario,
+            `Gross Premium ($M)` = gp_M,
+            `vs Base (%)`        = vs_base_pct) |>
+  gt() |>
+  tab_header(title    = "Table 10 — Gross Premium Sensitivity Analysis",
+             subtitle = sprintf("Base gross premium: $%.5fM", GP)) |>
+  fmt_number(columns = `Gross Premium ($M)`, decimals = 5) |>
+  fmt_number(columns = `vs Base (%)`,        decimals = 2, pattern = "{x}%") |>
+  cols_align(align = "left",   columns = Scenario) |>
+  cols_align(align = "center", columns = c(`Gross Premium ($M)`, `vs Base (%)`)) |>
+  tab_style(style = cell_fill(color = "#fff9c4"),
+            locations = cells_body(rows = Scenario == "Base case")) |>
+  tab_style(style = cell_text(color = "firebrick"),
+            locations = cells_body(columns = `vs Base (%)`,
+                                   rows = vs_base_pct > 0)) |>
+  tab_style(style = cell_text(color = "steelblue"),
+            locations = cells_body(columns = `vs Base (%)`,
+                                   rows = vs_base_pct < 0)) |>
+  tab_options(table.font.size = 13, heading.title.font.size = 14,
+              column_labels.font.weight = "bold") |>
+  print()
