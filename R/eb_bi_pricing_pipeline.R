@@ -1,7 +1,5 @@
 # =============================================================================
 # SOA 2026 Case Study — Business Interruption Pricing Pipeline
-# Galaxy General Insurance Company
-# Final Submission Version
 # =============================================================================
 
 library(tidyverse)
