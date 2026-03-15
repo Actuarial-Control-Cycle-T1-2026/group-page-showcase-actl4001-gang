@@ -56,8 +56,8 @@ freq <- raw_freq |>
     between(exposure, 0, 1),
     between(production_load, 0, 1),
     between(supply_chain_index, 0, 1),
-    between(avg_crew_exp, 1, 30),       # B10: 1–30 years plausible crew experience range
-    between(maintenance_freq, 0, 6),    # B11: 0–6 services/year plausible upper bound
+    between(avg_crew_exp, 1, 30),       
+    between(maintenance_freq, 0, 6),    
     maintenance_freq == floor(maintenance_freq),
     energy_backup_score %in% 1:5,
     safety_compliance   %in% 1:5,
@@ -121,10 +121,8 @@ ca_m <- sev$claim_amount / 1e6
 # ── 3.1 Severity — Lognormal (MoM) ───────────────────────────────────────────
 # Fit on raw nominal claim amounts (in $M). No CPI trend is applied: the
 # severity data has no accident year column, so year-matched trending is not
-# possible. Applying a blended average trend factor would introduce an
-# unanchored assumption. Raw nominal amounts are used and disclosed as a
-# limitation — the pure premium may be marginally understated if claims costs
-# are rising over the data period.
+# possible. Raw nominal amounts are used and disclosed as a limitation. The 
+# pure premium may be marginally understated.
 meanlog_sev <- mean(log(ca_m))
 sdlog_sev   <- sd(log(ca_m))
 E_X         <- exp(meanlog_sev + sdlog_sev^2 / 2)
@@ -136,11 +134,7 @@ E_X         <- exp(meanlog_sev + sdlog_sev^2 / 2)
 # zero probability ψ is treated as uniform across all policies. Assumption A4:
 # covariates are not included in the zero-inflation component. Justification:
 # in a ZINB, structural zeros represent policies genuinely incapable of
-# claiming. Empirically, the count component with covariates already handles
-# the variation in claim probability; adding covariates to the zero component
-# risks conflating structural immunity with low-probability claims, causing
-# identification instability. Intercept-only zero component is standard
-# actuarial practice for ZINB pricing models.
+# claiming.
 zinb_base <- zeroinfl(claim_count ~ 1 | 1, data = freq, dist = "negbin")
 
 psi_port <- plogis(coef(zinb_base, "zero"))
@@ -151,13 +145,6 @@ r_port   <- zinb_base$theta
 # Fitted with offset(log_exposure) so mu is a per-policy-year claim rate,
 # not a blended rate across mixed exposures. The simulation then scales each
 # policy's effective rate by its actual exposure fraction (Section 4).
-# Assumption A2: dispersion parameter r is fixed at the portfolio-level
-# estimate (r_port) rather than re-estimated per system. Justification:
-# re-estimating r on a subset (~30k policies per system) introduces instability
-# given the high zero proportion; the portfolio-level estimate is more
-# statistically reliable. The sensitivity of the pure premium to r is
-# modest relative to mu, and the assumption is conservative in the sense that
-# any under-dispersion at the system level is absorbed by the portfolio r.
 solar_systems <- levels(freq$solar_system)
 
 ss_params <- map(solar_systems, function(ss) {
@@ -176,12 +163,6 @@ ss_params <- map(solar_systems, function(ss) {
 
 # ── 3.4 Frequency GLM — empirically selected covariates ───────────────────────
 # Selected via ZINB LR tests (p < 0.05) + backward stepwise AIC.
-# solar_system dropped (p = 0.343); production_load dropped (p = 0.656);
-# safety_compliance dropped (p = 0.469); avg_crew_exp dropped (p = 0.133,
-# delta AIC = +0.2 — negligible improvement, judgement call to exclude).
-# EBS and maintenance_freq converted to unordered factors: ordered factors
-# produce polynomial contrasts (.L, .Q, .C) incompatible with level-wise
-# relativity extraction.
 freq_glm_data <- freq |>
   mutate(
     energy_backup_score = factor(as.numeric(energy_backup_score), levels = 1:5),
@@ -210,23 +191,6 @@ freq_sci_beta <- unname(freq_coefs["supply_chain_index"])
 
 # ── 3.5 Severity GLM — empirically selected covariates ────────────────────────
 # Selected via Gamma GLM LR tests (p < 0.05) + backward stepwise AIC.
-# solar_system dominant (LR = 77.7, p ~ 0); EBS borderline (p = 0.011);
-# SCI borderline (p = 0.013). safety_compliance (p = 0.310) and
-# production_load (p = 0.603) dropped. 286 records without SCI excluded.
-# Assumption A7: Gamma GLM (log link) used for relativity extraction despite
-# Lognormal being the best-fit marginal distribution (confirmed in
-# supplementary Table S2). Justification: the Gamma GLM is the industry-
-# standard choice for severity relativities — it is a proper exponential
-# family GLM with a canonical log link, giving consistent and efficient
-# coefficient estimates regardless of the precise empirical distribution.
-# The Lognormal is retained for simulation (Section 4) where distributional
-# shape matters. The two uses are distinct: GLM for relativities, Lognormal
-# for aggregate loss simulation.
-# Assumption A3: a single portfolio-level Lognormal is used in simulation
-# for all policies regardless of solar system. The severity GLM relativities
-# adjust the expected premium by system, but the simulated loss draws are not
-# system-stratified. This means VaR and TVaR are computed from a blended
-# distribution. Disclosed as a modelling limitation.
 sev_glm_data <- sev |>
   filter(!is.na(supply_chain_index)) |>
   mutate(
@@ -325,7 +289,7 @@ var99  <- risk_metrics$VaR_M[risk_metrics$alpha == 0.99]
 var995 <- risk_metrics$VaR_M[risk_metrics$alpha == 0.995]
 
 # ── 5.2 PML ───────────────────────────────────────────────────────────────────
-n_pml      <- 30000   # B2: lower than N_SIM for memory efficiency; adequate for PML quantiles
+n_pml      <- 30000   # lower than N_SIM for memory efficiency; adequate for PML quantiles
 pml_sz     <- rbinom(n_pml * n_pol, 1L, rep(policy_psi, n_pml)) == 1L
 pml_counts <- integer(n_pml * n_pol)
 pml_active <- which(!pml_sz)
@@ -392,16 +356,6 @@ PP_analytical  <- (1 - psi_port) * mu_port * E_X   # closed-form check (unweight
 # Severity component: solar_system (discrete) × EBS (discrete) × SCI (continuous).
 # Both components normalised independently so their portfolio averages = 1,
 # ensuring GP remains interpretable as the portfolio-average gross premium.
-# Assumption A5: frequency and severity relativities are combined multiplicatively
-# (equiv. additively on the log scale given both GLMs use log links). This is
-# the standard two-part GLM pricing approach and assumes the freq and sev
-# covariate effects are separable. Interaction terms between the two covariate
-# sets were not tested; this is a standard limitation of two-part models.
-# Assumption A10: freq normalisation factor is computed over all ~97k freq
-# records; sev normalisation factor over ~9,569 sev records with SCI. These
-# represent slightly different portfolio compositions. The impact is immaterial
-# given both datasets are drawn from the same underlying portfolio, but is
-# documented for transparency.
 
 sci_port_mean <- mean(freq$supply_chain_index, na.rm = TRUE)  # for heatmap display
 
@@ -449,9 +403,6 @@ combined_rel_fn <- function(ebs, sci, maint, ss) {
 # =============================================================================
 
 # ── 7.1 Actuarial tools ───────────────────────────────────────────────────────
-# Three analytical functions derived from the portfolio-level Lognormal fit.
-# All use meanlog_sev and sdlog_sev as defaults (raw nominal $M, no trend).
-#
 # lev_fn(u): Limited Expected Value = E[min(X, u)].
 #   The expected loss the insurer pays per claim under a per-occurrence limit u.
 #   Used to derive the lev_factor (Section 7.3) which scales PP to reflect
@@ -464,14 +415,7 @@ combined_rel_fn <- function(ebs, sci, maint, ss) {
 # ilf_fn(u): Increased Limits Factor = LEV(u) / LEV(basic).
 #   Cost of limit u as a multiple of the basic limit ($5M, industry convention).
 #   Used to populate Table 7 for alternative limit negotiations.
-#
-# Assumption A8: all three functions use the portfolio-level Lognormal
-# (meanlog_sev, sdlog_sev). Since solar system is the dominant severity driver,
-# the true LEV for a Helionis Cluster policy differs from a Zeta policy.
-# A system-specific LEV would require separate Lognormal fits per system.
-# The current approach applies a blended LEV factor to all policies equally;
-# system-level severity differences are instead captured through the GLM
-# relativities. Disclosed as a modelling simplification.
+
 lev_fn <- function(limit, ml = meanlog_sev, sl = sdlog_sev) {
   if (limit <= 0) return(0)
   EX <- exp(ml + sl^2 / 2)
@@ -489,8 +433,7 @@ ilf_fn <- function(limit, basic = 5.0) {   # B13: $5M basic limit — industry c
 }
 
 # ── 7.2 Benefit structure — parametric, basis risk loading ───────────────────
-# Parametric structure removes indemnity verification (operationally necessary
-# for remote space mining). Basis risk loading reflects mismatch between
+# Basis risk loading reflects mismatch between
 # parametric trigger payments and actual incurred losses.
 BASIS_RISK_LOAD <- 0.10          # +10% basis risk load (market convention)
 PP_parametric   <- PP_sim * (1 + BASIS_RISK_LOAD)
@@ -548,14 +491,13 @@ PROFIT_LOAD     <- 0.12          # target profit margin
 
 # ── 8.2 Risk margin ───────────────────────────────────────────────────────────
 # Risk margin = max(0.5 × CoV of aggregate losses, 10% floor).
-# B3: the 0.5 multiplier approximates the Cost of Capital loading under a
+# the 0.5 multiplier approximates the Cost of Capital loading under a
 # simplified Solvency II / APRA-style framework, where risk margin is
-# proportional to the uncertainty in the liability. 0.5 is a standard working
-# approximation when a full capital model is unavailable.
-# B4: the 10% floor reflects minimum return requirements for a novel line with
+# proportional to the uncertainty in the liability. 
+# the 10% floor reflects minimum return requirements for a novel line with
 # no market benchmarks. Consistent with APRA prudential margins for emerging
 # lines and compensates for parameter uncertainty beyond simulation variance.
-# CoV reflects simulation volatility; 10% floor reflects epistemic uncertainty.
+
 cov_agg     <- sd(agg_losses) / mean(agg_losses)
 RISK_MARGIN <- max(round(cov_agg * 0.5, 2), 0.10)   # = max(0.5×CoV, 10%)
 
@@ -568,19 +510,11 @@ loss_ratio  <- PP_technical / GP
 # GP is the portfolio-average annual rate per full policy-year.
 # For any policy profile and exposure fraction, the quoted premium is:
 #   GP_quoted = GP × combined_relativity × exposure
-# Linear pro-rating is consistent with the offset structure in the GLM.
 gp_fn <- function(ebs, sci, maint, ss, exposure = 1.0) {
   GP * combined_rel_fn(ebs, sci, maint, ss) * exposure
 }
 
 # ── 8.5 Sensitivity analysis ─────────────────────────────────────────────────
-# B14: shock magnitudes (±10% freq, ±15% sev, ±5pp loads) are judgemental but
-# are consistent with standard actuarial stress ranges for novel lines.
-# C2: shocks are applied to PP_technical (post-exclusion), not PP_sim. This
-# means the frequency/severity stresses reflect variation in covered losses
-# only, not gross losses before exclusions. This is intentional — the
-# sensitivity tests the impact of model error on the premium the insurer
-# actually charges, after exclusions are applied.
 sensitivity <- tribble(
   ~Scenario,                           ~pp_d,  ~exp_d, ~prof_d, ~rm_d,
   "Base case",                          0.00,   0.00,   0.00,    0.00,
@@ -606,7 +540,7 @@ sensitivity <- tribble(
 
 
 # =============================================================================
-# 9. PLOTS — CLEAN WHITE THEME
+# 9. PLOTS 
 # =============================================================================
 
 clean_theme <- theme_minimal(base_size = 11) +
@@ -898,7 +832,7 @@ print(ex9)
 
 
 # =============================================================================
-# 10. FORMATTED TABLES
+# 10. TABLES
 # =============================================================================
 
 # ── Table 1: Data cleaning summary ────────────────────────────────────────────
