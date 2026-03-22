@@ -23,7 +23,7 @@ select <- dplyr::select
 set.seed(278)
 
 DATA_PATH <- "C:/Users/Ethan/Documents/actl4001-soa-2026-case-study/data/raw/"
-N_SIM     <- 50000   
+N_SIM     <- 50000  
 
 
 # =============================================================================
@@ -56,8 +56,8 @@ freq <- raw_freq |>
     between(exposure, 0, 1),
     between(production_load, 0, 1),
     between(supply_chain_index, 0, 1),
-    between(avg_crew_exp, 1, 30),       
-    between(maintenance_freq, 0, 6),    
+    between(avg_crew_exp, 1, 30),       # B10: 1–30 years plausible crew experience range
+    between(maintenance_freq, 0, 6),    # B11: 0–6 services/year plausible upper bound
     maintenance_freq == floor(maintenance_freq),
     energy_backup_score %in% 1:5,
     safety_compliance   %in% 1:5,
@@ -121,8 +121,10 @@ ca_m <- sev$claim_amount / 1e6
 # ── 3.1 Severity — Lognormal (MoM) ───────────────────────────────────────────
 # Fit on raw nominal claim amounts (in $M). No CPI trend is applied: the
 # severity data has no accident year column, so year-matched trending is not
-# possible. Raw nominal amounts are used and disclosed as a limitation. The 
-# pure premium may be marginally understated.
+# possible. Applying a blended average trend factor would introduce an
+# unanchored assumption. Raw nominal amounts are used and disclosed as a
+# limitation — the pure premium may be marginally understated if claims costs
+# are rising over the data period.
 meanlog_sev <- mean(log(ca_m))
 sdlog_sev   <- sd(log(ca_m))
 E_X         <- exp(meanlog_sev + sdlog_sev^2 / 2)
@@ -134,7 +136,11 @@ E_X         <- exp(meanlog_sev + sdlog_sev^2 / 2)
 # zero probability ψ is treated as uniform across all policies. Assumption A4:
 # covariates are not included in the zero-inflation component. Justification:
 # in a ZINB, structural zeros represent policies genuinely incapable of
-# claiming.
+# claiming. Empirically, the count component with covariates already handles
+# the variation in claim probability; adding covariates to the zero component
+# risks conflating structural immunity with low-probability claims, causing
+# identification instability. Intercept-only zero component is standard
+# actuarial practice for ZINB pricing models.
 zinb_base <- zeroinfl(claim_count ~ 1 | 1, data = freq, dist = "negbin")
 
 psi_port <- plogis(coef(zinb_base, "zero"))
@@ -145,6 +151,13 @@ r_port   <- zinb_base$theta
 # Fitted with offset(log_exposure) so mu is a per-policy-year claim rate,
 # not a blended rate across mixed exposures. The simulation then scales each
 # policy's effective rate by its actual exposure fraction (Section 4).
+# Assumption A2: dispersion parameter r is fixed at the portfolio-level
+# estimate (r_port) rather than re-estimated per system. Justification:
+# re-estimating r on a subset (~30k policies per system) introduces instability
+# given the high zero proportion; the portfolio-level estimate is more
+# statistically reliable. The sensitivity of the pure premium to r is
+# modest relative to mu, and the assumption is conservative in the sense that
+# any under-dispersion at the system level is absorbed by the portfolio r.
 solar_systems <- levels(freq$solar_system)
 
 ss_params <- map(solar_systems, function(ss) {
@@ -163,6 +176,12 @@ ss_params <- map(solar_systems, function(ss) {
 
 # ── 3.4 Frequency GLM — empirically selected covariates ───────────────────────
 # Selected via ZINB LR tests (p < 0.05) + backward stepwise AIC.
+# solar_system dropped (p = 0.343); production_load dropped (p = 0.656);
+# safety_compliance dropped (p = 0.469); avg_crew_exp dropped (p = 0.133,
+# delta AIC = +0.2 — negligible improvement, judgement call to exclude).
+# EBS and maintenance_freq converted to unordered factors: ordered factors
+# produce polynomial contrasts (.L, .Q, .C) incompatible with level-wise
+# relativity extraction.
 freq_glm_data <- freq |>
   mutate(
     energy_backup_score = factor(as.numeric(energy_backup_score), levels = 1:5),
@@ -191,6 +210,18 @@ freq_sci_beta <- unname(freq_coefs["supply_chain_index"])
 
 # ── 3.5 Severity GLM — empirically selected covariates ────────────────────────
 # Selected via Gamma GLM LR tests (p < 0.05) + backward stepwise AIC.
+# solar_system REMOVED: the new business covers Helionis Cluster, Bayesia
+# System, and Oryn Delta. Historical data covers Helionis Cluster, Zeta, and
+# Epsilon. These are different solar systems — using solar_system as a rating
+# variable would be extrapolating to unseen levels, which is not defensible.
+# See bi_severity_varselect_rerun.R for full re-run of variable selection
+# without solar_system. Remaining candidates: EBS, SCI, safety_compliance,
+# production_load. Expected result: EBS and SCI retained (both were p<0.05
+# in the prior model), safety_compliance (p=0.310) and production_load
+# (p=0.603) dropped — consistent with the prior selection.
+# Assumption A7: Gamma GLM (log link) for relativities, Lognormal for
+# simulation — see Section 3.4 comments for full justification.
+# Assumption A3: single portfolio-level Lognormal for all severity draws.
 sev_glm_data <- sev |>
   filter(!is.na(supply_chain_index)) |>
   mutate(
@@ -199,19 +230,13 @@ sev_glm_data <- sev |>
   )
 
 sev_glm <- glm(
-  claim_amount_M ~ solar_system + energy_backup_score + supply_chain_index,
+  claim_amount_M ~ energy_backup_score + supply_chain_index,
   data   = sev_glm_data,
   family = Gamma(link = "log")
 )
 
 sev_coefs <- coef(sev_glm)
 
-sev_ss_rel <- setNames(
-  c(1.0,
-    unname(exp(sev_coefs["solar_systemEpsilon"])),
-    unname(exp(sev_coefs["solar_systemHelionis Cluster"]))),
-  c("Zeta", "Epsilon", "Helionis Cluster")
-)
 sev_ebs_rel <- setNames(
   c(1.0, unname(exp(sev_coefs[paste0("energy_backup_score", 2:5)]))),
   as.character(1:5)
@@ -289,7 +314,7 @@ var99  <- risk_metrics$VaR_M[risk_metrics$alpha == 0.99]
 var995 <- risk_metrics$VaR_M[risk_metrics$alpha == 0.995]
 
 # ── 5.2 PML ───────────────────────────────────────────────────────────────────
-n_pml      <- 30000   # lower than N_SIM for memory efficiency; adequate for PML quantiles
+n_pml      <- 10000   # B2: lower than N_SIM for memory efficiency; adequate for PML quantiles
 pml_sz     <- rbinom(n_pml * n_pol, 1L, rep(policy_psi, n_pml)) == 1L
 pml_counts <- integer(n_pml * n_pol)
 pml_active <- which(!pml_sz)
@@ -353,27 +378,31 @@ PP_analytical  <- (1 - psi_port) * mu_port * E_X   # closed-form check (unweight
 # ── 6.2 Policy-level GLM relativities — normalised to portfolio average ────────
 # Each policy's combined relativity = freq_rel × sev_rel.
 # Frequency component: EBS (discrete) × SCI (continuous) × maint (discrete).
-# Severity component: solar_system (discrete) × EBS (discrete) × SCI (continuous).
+# Severity component: EBS (discrete) × SCI (continuous).
+# solar_system removed from severity — new business covers different systems
+# than historical data. Applying historical system relativities to unseen
+# systems would be extrapolation without empirical basis.
 # Both components normalised independently so their portfolio averages = 1,
 # ensuring GP remains interpretable as the portfolio-average gross premium.
+# Assumption A5: multiplicative combination — standard two-part GLM approach.
+# Assumption A10: freq normalisation over ~97k records; sev over ~9,569.
 
-sci_port_mean <- mean(freq$supply_chain_index, na.rm = TRUE)  # for heatmap display
+sci_port_mean <- mean(freq$supply_chain_index, na.rm = TRUE)
 
 freq_policy_rel <- freq_glm_data |>
   mutate(
-    r_ebs   = as.numeric(freq_ebs_rel[as.character(energy_backup_score)]),
-    r_sci   = exp(freq_sci_beta * supply_chain_index),
-    r_maint = as.numeric(freq_maint_rel[as.character(maintenance_freq)]),
+    r_ebs        = as.numeric(freq_ebs_rel[as.character(energy_backup_score)]),
+    r_sci        = exp(freq_sci_beta * supply_chain_index),
+    r_maint      = as.numeric(freq_maint_rel[as.character(maintenance_freq)]),
     freq_rel_raw = r_ebs * r_sci * r_maint
   ) |>
   pull(freq_rel_raw)
 
 sev_policy_rel <- sev_glm_data |>
   mutate(
-    r_ss  = as.numeric(sev_ss_rel[as.character(solar_system)]),
-    r_ebs = as.numeric(sev_ebs_rel[as.character(energy_backup_score)]),
-    r_sci = exp(sev_sci_beta * supply_chain_index),
-    sev_rel_raw = r_ss * r_ebs * r_sci
+    r_ebs       = as.numeric(sev_ebs_rel[as.character(energy_backup_score)]),
+    r_sci       = exp(sev_sci_beta * supply_chain_index),
+    sev_rel_raw = r_ebs * r_sci
   ) |>
   pull(sev_rel_raw)
 
@@ -387,14 +416,13 @@ freq_rel_fn <- function(ebs, sci, maint) {
      freq_maint_rel[as.character(maint)]) / freq_norm_factor
 }
 
-sev_rel_fn <- function(ss, ebs, sci) {
-  (sev_ss_rel[as.character(ss)] *
-     sev_ebs_rel[as.character(ebs)] *
+sev_rel_fn <- function(ebs, sci) {
+  (sev_ebs_rel[as.character(ebs)] *
      exp(sev_sci_beta * sci)) / sev_norm_factor
 }
 
-combined_rel_fn <- function(ebs, sci, maint, ss) {
-  freq_rel_fn(ebs, sci, maint) * sev_rel_fn(ss, ebs, sci)
+combined_rel_fn <- function(ebs, sci, maint) {
+  freq_rel_fn(ebs, sci, maint) * sev_rel_fn(ebs, sci)
 }
 
 
@@ -403,6 +431,9 @@ combined_rel_fn <- function(ebs, sci, maint, ss) {
 # =============================================================================
 
 # ── 7.1 Actuarial tools ───────────────────────────────────────────────────────
+# Three analytical functions derived from the portfolio-level Lognormal fit.
+# All use meanlog_sev and sdlog_sev as defaults (raw nominal $M, no trend).
+#
 # lev_fn(u): Limited Expected Value = E[min(X, u)].
 #   The expected loss the insurer pays per claim under a per-occurrence limit u.
 #   Used to derive the lev_factor (Section 7.3) which scales PP to reflect
@@ -415,7 +446,14 @@ combined_rel_fn <- function(ebs, sci, maint, ss) {
 # ilf_fn(u): Increased Limits Factor = LEV(u) / LEV(basic).
 #   Cost of limit u as a multiple of the basic limit ($5M, industry convention).
 #   Used to populate Table 7 for alternative limit negotiations.
-
+#
+# Assumption A8: all three functions use the portfolio-level Lognormal
+# (meanlog_sev, sdlog_sev). Since solar system is the dominant severity driver,
+# the true LEV for a Helionis Cluster policy differs from a Zeta policy.
+# A system-specific LEV would require separate Lognormal fits per system.
+# The current approach applies a blended LEV factor to all policies equally;
+# system-level severity differences are instead captured through the GLM
+# relativities. Disclosed as a modelling simplification.
 lev_fn <- function(limit, ml = meanlog_sev, sl = sdlog_sev) {
   if (limit <= 0) return(0)
   EX <- exp(ml + sl^2 / 2)
@@ -433,7 +471,8 @@ ilf_fn <- function(limit, basic = 5.0) {   # B13: $5M basic limit — industry c
 }
 
 # ── 7.2 Benefit structure — parametric, basis risk loading ───────────────────
-# Basis risk loading reflects mismatch between
+# Parametric structure removes indemnity verification (operationally necessary
+# for remote space mining). Basis risk loading reflects mismatch between
 # parametric trigger payments and actual incurred losses.
 BASIS_RISK_LOAD <- 0.10          # +10% basis risk load (market convention)
 PP_parametric   <- PP_sim * (1 + BASIS_RISK_LOAD)
@@ -491,13 +530,14 @@ PROFIT_LOAD     <- 0.12          # target profit margin
 
 # ── 8.2 Risk margin ───────────────────────────────────────────────────────────
 # Risk margin = max(0.5 × CoV of aggregate losses, 10% floor).
-# the 0.5 multiplier approximates the Cost of Capital loading under a
+# B3: the 0.5 multiplier approximates the Cost of Capital loading under a
 # simplified Solvency II / APRA-style framework, where risk margin is
-# proportional to the uncertainty in the liability. 
-# the 10% floor reflects minimum return requirements for a novel line with
+# proportional to the uncertainty in the liability. 0.5 is a standard working
+# approximation when a full capital model is unavailable.
+# B4: the 10% floor reflects minimum return requirements for a novel line with
 # no market benchmarks. Consistent with APRA prudential margins for emerging
 # lines and compensates for parameter uncertainty beyond simulation variance.
-
+# CoV reflects simulation volatility; 10% floor reflects epistemic uncertainty.
 cov_agg     <- sd(agg_losses) / mean(agg_losses)
 RISK_MARGIN <- max(round(cov_agg * 0.5, 2), 0.10)   # = max(0.5×CoV, 10%)
 
@@ -508,13 +548,25 @@ loss_ratio  <- PP_technical / GP
 
 # ── 8.4 Policy gross premium function ────────────────────────────────────────
 # GP is the portfolio-average annual rate per full policy-year.
-# For any policy profile and exposure fraction, the quoted premium is:
-#   GP_quoted = GP × combined_relativity × exposure
-gp_fn <- function(ebs, sci, maint, ss, exposure = 1.0) {
-  GP * combined_rel_fn(ebs, sci, maint, ss) * exposure
+# solar_system removed — new business covers unseen systems.
+# For Cosmic Quarry new business, portfolio-average GP is applied to all
+# 55 stations (Helionis 30, Bayesia 15, Oryn Delta 10) — justified by the
+# absence of system-level covariate differentiation in the historical data
+# (mean EBS ≈ SCI ≈ maint are essentially identical across all three systems).
+# For any policy with known covariates: GP_i = GP × combined_rel × exposure
+# For Cosmic Quarry stations (covariates unknown): GP_i = GP × exposure
+gp_fn <- function(ebs, sci, maint, exposure = 1.0) {
+  GP * combined_rel_fn(ebs, sci, maint) * exposure
 }
 
 # ── 8.5 Sensitivity analysis ─────────────────────────────────────────────────
+# B14: shock magnitudes (±10% freq, ±15% sev, ±5pp loads) are judgemental but
+# are consistent with standard actuarial stress ranges for novel lines.
+# C2: shocks are applied to PP_technical (post-exclusion), not PP_sim. This
+# means the frequency/severity stresses reflect variation in covered losses
+# only, not gross losses before exclusions. This is intentional — the
+# sensitivity tests the impact of model error on the premium the insurer
+# actually charges, after exclusions are applied.
 sensitivity <- tribble(
   ~Scenario,                           ~pp_d,  ~exp_d, ~prof_d, ~rm_d,
   "Base case",                          0.00,   0.00,   0.00,    0.00,
@@ -540,7 +592,7 @@ sensitivity <- tribble(
 
 
 # =============================================================================
-# 9. PLOTS 
+# 9. PLOTS — CLEAN WHITE THEME
 # =============================================================================
 
 clean_theme <- theme_minimal(base_size = 11) +
@@ -650,10 +702,9 @@ rel_plot_df <- bind_rows(
          rel      = c(as.numeric(freq_ebs_rel) / freq_norm_factor,
                       as.numeric(freq_maint_rel) / freq_norm_factor)),
   tibble(model = "Severity",
-         variable = rep(c("Solar System","EBS Score"), c(3, 5)),
-         level    = c(names(sev_ss_rel), paste0("EBS ", 1:5)),
-         rel      = c(as.numeric(sev_ss_rel) / sev_norm_factor,
-                      as.numeric(sev_ebs_rel) / sev_norm_factor))
+         variable = rep("EBS Score", 5),
+         level    = paste0("EBS ", 1:5),
+         rel      = as.numeric(sev_ebs_rel) / sev_norm_factor)
 )
 
 ex4 <- ggplot(rel_plot_df, aes(x = level, y = rel, fill = rel > 1)) +
@@ -732,30 +783,32 @@ ex6a <- ggplot(freq_heat_df, aes(x = ebs, y = maint, fill = rel)) +
   clean_theme
 print(ex6a)
 
-# ── Exhibit 7: Severity relativity heatmap (Solar System × EBS, SCI @ mean) ──
-sev_sci_mean <- mean(sev_glm_data$supply_chain_index, na.rm = TRUE)
+# ── Exhibit 7: Severity relativity heatmap — EBS × SCI bands ─────────────────
+# solar_system removed. Heatmap now shows combined severity relativity
+# across EBS levels and SCI decile bands (SCI fixed at band midpoints).
+sev_sci_breaks <- seq(0, 1, by = 0.2)
+sev_sci_mids   <- sev_sci_breaks[-length(sev_sci_breaks)] + 0.1
 
 sev_heat_df <- expand_grid(
-  ss  = factor(levels(freq$solar_system), levels = levels(freq$solar_system)),
-  ebs = factor(1:5)
+  ebs      = factor(1:5),
+  sci_band = factor(paste0("[", sev_sci_breaks[-length(sev_sci_breaks)],
+                           ",", sev_sci_breaks[-1], ")"),
+                    levels = paste0("[", sev_sci_breaks[-length(sev_sci_breaks)],
+                                    ",", sev_sci_breaks[-1], ")"))
 ) |>
   mutate(
-    rel = map2_dbl(ss, ebs, ~ {
-      (sev_ss_rel[as.character(.x)] *
-         sev_ebs_rel[as.character(.y)] *
-         exp(sev_sci_beta * sev_sci_mean)) / sev_norm_factor
-    })
+    sci_mid = sev_sci_mids[as.integer(sci_band)],
+    rel     = map2_dbl(ebs, sci_mid, ~ sev_rel_fn(as.character(.x), .y))
   )
 
-ex6b <- ggplot(sev_heat_df, aes(x = ebs, y = ss, fill = rel)) +
+ex6b <- ggplot(sev_heat_df, aes(x = ebs, y = sci_band, fill = rel)) +
   geom_tile(colour = "white", linewidth = 0.8) +
   geom_text(aes(label = sprintf("%.3f", rel)), size = 3) +
   scale_fill_gradient2(low = "steelblue", mid = "white", high = "firebrick",
                        midpoint = 1, name = "Sev Rel") +
-  labs(title    = "Exhibit 7 — Severity Relativity: Solar System × EBS Score",
-       subtitle = sprintf("SCI fixed at severity dataset mean (%.2f)  |  Normalised to 1.0",
-                          sev_sci_mean),
-       x = "Energy Backup Score", y = "Solar System") +
+  labs(title    = "Exhibit 7 — Severity Relativity: EBS Score × SCI Band",
+       subtitle = "solar_system removed — new business covers unseen systems  |  Normalised to 1.0",
+       x = "Energy Backup Score", y = "Supply Chain Index Band") +
   clean_theme
 print(ex6b)
 
@@ -832,7 +885,7 @@ print(ex9)
 
 
 # =============================================================================
-# 10. TABLES
+# 10. FORMATTED TABLES
 # =============================================================================
 
 # ── Table 1: Data cleaning summary ────────────────────────────────────────────
@@ -907,22 +960,14 @@ pml_table |>
 # ── Table 5: Component relativity table ───────────────────────────────────────
 # Discrete relativities — normalised to portfolio average = 1.0
 rel_tbl_discrete <- bind_rows(
-  # Frequency: EBS
   tibble(Model     = "Frequency",
          Variable  = "Energy Backup Score",
          Level     = as.character(1:5),
          Relativity = as.numeric(freq_ebs_rel) / freq_norm_factor),
-  # Frequency: Maintenance frequency
   tibble(Model     = "Frequency",
          Variable  = "Maintenance Frequency",
          Level     = as.character(0:6),
          Relativity = as.numeric(freq_maint_rel) / freq_norm_factor),
-  # Severity: Solar system
-  tibble(Model     = "Severity",
-         Variable  = "Solar System",
-         Level     = names(sev_ss_rel),
-         Relativity = as.numeric(sev_ss_rel) / sev_norm_factor),
-  # Severity: EBS
   tibble(Model     = "Severity",
          Variable  = "Energy Backup Score",
          Level     = as.character(1:5),
@@ -933,7 +978,7 @@ rel_tbl_discrete |>
   gt() |>
   tab_header(
     title    = "Table 5 — GLM Component Relativities (Discrete Variables)",
-    subtitle = "Normalised so portfolio-weighted average = 1.0  |  Reference levels: EBS 1, Maintenance 0, Zeta"
+    subtitle = "Normalised so portfolio-weighted average = 1.0  |  Reference levels: EBS 1, Maintenance 0  |  solar_system removed (new business system mismatch)"
   ) |>
   fmt_number(columns = Relativity, decimals = 4) |>
   tab_style(style = cell_text(color = "firebrick"),
@@ -1055,16 +1100,15 @@ tibble(
 # Three representative profiles showing how component relativities combine.
 # Premium = portfolio GP × freq_rel(EBS, SCI, maint) × sev_rel(SS, EBS, SCI)
 examples <- tribble(
-  ~Profile,          ~solar_system,       ~EBS, ~SCI,  ~Maintenance,
-  "Low risk",        "Zeta",              1L,   0.20,   5L,
-  "Mid risk",        "Epsilon",           3L,   0.50,   3L,
-  "High risk",       "Helionis Cluster",  5L,   0.80,   1L
+  ~Profile,    ~EBS, ~SCI,  ~Maintenance,
+  "Low risk",  1L,   0.20,   5L,
+  "Mid risk",  3L,   0.50,   3L,
+  "High risk", 5L,   0.80,   1L
 ) |>
   mutate(
-    `Freq Rel` = pmap_dbl(list(EBS, SCI, Maintenance),
-                          ~ freq_rel_fn(..1, ..2, ..3)),
-    `Sev Rel`  = pmap_dbl(list(solar_system, EBS, SCI),
-                          ~ sev_rel_fn(..1, ..2, ..3)),
+    `Freq Rel`     = pmap_dbl(list(EBS, SCI, Maintenance),
+                              ~ freq_rel_fn(..1, ..2, ..3)),
+    `Sev Rel`      = map2_dbl(EBS, SCI, ~ sev_rel_fn(as.character(.x), .y)),
     `Combined Rel` = `Freq Rel` * `Sev Rel`,
     `Gross Premium`= dollar(round(GP * `Combined Rel` * 1e6), big.mark = ",")
   )
@@ -1073,14 +1117,14 @@ examples |>
   gt() |>
   tab_header(
     title    = "Table 10 — Illustrative Policy Profiles and Indicative Gross Premiums",
-    subtitle = "Premium = portfolio GP × Freq Rel × Sev Rel  |  All relativities normalised to portfolio average = 1.0"
+    subtitle = "Premium = portfolio GP × Freq Rel × Sev Rel  |  solar_system removed  |  Relativities normalised to portfolio average = 1.0"
   ) |>
   fmt_number(columns = SCI, decimals = 2) |>
   fmt_number(columns = c(`Freq Rel`, `Sev Rel`, `Combined Rel`), decimals = 4) |>
   tab_style(style = cell_fill(color = "#fff9c4"),
             locations = cells_body(rows = Profile == "Mid risk")) |>
-  cols_align(align = "left",   columns = c(Profile, solar_system)) |>
-  cols_align(align = "center", columns = -c(Profile, solar_system)) |>
+  cols_align(align = "left",   columns = Profile) |>
+  cols_align(align = "center", columns = -Profile) |>
   tab_options(table.font.size = 13, heading.title.font.size = 14,
               column_labels.font.weight = "bold") |>
   print()
@@ -1104,15 +1148,9 @@ sensitivity |>
   tab_style(style = cell_text(color = "steelblue"),
             locations = cells_body(columns = `vs Base (%)`,
                                    rows = vs_base_pct < 0)) |>
-  cols_align(align = "left",   columns = Scenario) |>
   cols_hide(columns = vs_base_pct) |>
+  cols_align(align = "left",   columns = Scenario) |>
   cols_align(align = "center", columns = -Scenario) |>
   tab_options(table.font.size = 13, heading.title.font.size = 14,
               column_labels.font.weight = "bold") |>
   print()
-
-
-cat(sprintf("n_pol:          %d\n",   n_pol))
-cat(sprintf("total_exposure: %.1f\n", total_exposure))
-cat(sprintf("mean_exposure:  %.4f\n", total_exposure / n_pol))
-cat(sprintf("PP ratio:       %.4f\n", n_pol / total_exposure))
