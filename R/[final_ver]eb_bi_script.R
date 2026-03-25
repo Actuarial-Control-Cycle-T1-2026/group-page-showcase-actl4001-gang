@@ -125,6 +125,7 @@ n_sev_sci  <- sum(!is.na(sev$supply_chain_index))
 sev_data <- sev$claim_amount / 1e6
 n_freq   <- nrow(freq)
 
+
 # ── Clean plot theme ──────────────────────────────────────────────────────────
 clean_theme <- theme_minimal(base_size = 11) +
   theme(
@@ -716,7 +717,9 @@ for (s in seq_len(N_SIM)) {
 close(pb)
 
 cat(sprintf("\nHistorical portfolio simulation complete.\n"))
-cat(sprintf("  E[annual loss]: $%.4fM\n", mean(agg_losses)))
+cat(sprintf("  E[portfolio aggregate loss, all %d policies]: $%.4fM\n", n_pol, mean(agg_losses)))
+cat(sprintf("  E[annual loss per station-year] (= PP_sim): $%.4fM\n",
+            mean(agg_losses) / sum(freq$exposure)))
 
 
 # =============================================================================
@@ -773,9 +776,10 @@ oep_curve <- tibble(
 # =============================================================================
 
 total_exposure <- sum(freq$exposure)
-PP_sim         <- mean(agg_losses) / (n_pol * total_exposure / n_pol)
-PP_sim         <- sum(agg_losses) / (N_SIM * total_exposure)
-PP_analytical  <- (1 - psi_port) * mu_port * E_X
+PP_sim <- sum(agg_losses) / (N_SIM * total_exposure)
+PP_analytical      <- (1 - psi_port) * mu_port * E_X
+avg_exposure       <- total_exposure / n_pol
+PP_analytical_ann  <- PP_analytical / avg_exposure
 
 sci_port_mean <- mean(freq$supply_chain_index, na.rm = TRUE)
 
@@ -1333,18 +1337,35 @@ sensitivity |>
 
 # ── L.7 Key pricing outputs ───────────────────────────────────────────────────
 tibble(
-  Parameter = c("ZINB — Structural zero probability (ψ)",
-                "ZINB — Mean claim rate (μ)",
-                "ZINB — Dispersion (r)",
-                "ZINB — Expected frequency E[N]",
-                "Lognormal — meanlog",
-                "Lognormal — sdlog",
-                "Lognormal — Expected severity E[X] ($M)"),
-  Value = c(psi_port, mu_port, r_port, (1-psi_port)*mu_port,
-            meanlog_sev, sdlog_sev, E_X)
+  Parameter = c(
+    "ZINB — Structural zero probability (ψ)",
+    "ZINB — Mean claim rate (μ)  [no-offset model; per policy over observed exposure]",
+    "ZINB — Dispersion (r)",
+    "ZINB — E[N] per policy over observed exposure period  [NOT per station-year]",
+    "ZINB — E[N] annualised (per station-year)  [= PP_sim / E[X]]",
+    "Lognormal — meanlog",
+    "Lognormal — sdlog",
+    "Lognormal — Expected severity E[X] ($M)  [per claim, independent of exposure]"
+  ),
+  Value = c(
+    psi_port,
+    mu_port,
+    r_port,
+    (1 - psi_port) * mu_port,
+    PP_sim / E_X,
+    meanlog_sev,
+    sdlog_sev,
+    E_X
+  )
 ) |>
   gt() |>
-  tab_header(title = "Table 2 — Fitted Model Parameters") |>
+  tab_header(
+    title    = "Table 2 — Fitted Model Parameters",
+    subtitle = paste0(
+      "E[N] per station-year = PP_sim / E[X] = ",
+      sprintf("$%.4fM / $%.4fM = %.4f claims/station/year  |  ",
+              PP_sim, E_X, PP_sim / E_X))
+  ) |>
   fmt_number(columns = Value, decimals = 5) |>
   cols_align(align = "left",   columns = Parameter) |>
   cols_align(align = "center", columns = Value) |>
@@ -1361,10 +1382,10 @@ ex1 <- ggplot(tibble(x = agg_losses), aes(x = x)) +
   geom_vline(xintercept = var995, colour = "darkorange", linewidth = 1.0, linetype = "dotted") +
   scale_x_continuous(labels = label_dollar(suffix = "M", scale = 1)) +
   scale_y_continuous(labels = label_comma()) +
-  labs(title    = "Exhibit 1 — Annual Aggregate BI Loss Distribution (Historical Portfolio)",
+  labs(title    = "Exhibit 1 — Historical Portfolio Aggregate BI Loss Distribution",
        subtitle = sprintf("n = %s simulations  |  %s policies",
                           comma(N_SIM), comma(n_pol)),
-       x = "Annual Aggregate Loss ($M)", y = "Frequency") +
+       x = "Historical Aggregate Loss ($M)", y = "Frequency") +
   clean_theme
 print(ex1)
 
@@ -1992,3 +2013,5 @@ cat(sprintf("  Reinsurance load per station: $%.6fM (%.2f%% of GP_B)\n",
             rein_load_M, rein_load_M/GP_B*100))
 cat(sprintf("  For 1%% ruin probability: initial reserves = $%.3fM\n",
             ifelse(nrow(thresh_1pct)>0, thresh_1pct$R0_M, NA)))
+
+cat(sprintf(" E[annual loss]: $%.4fM\n", mean(agg_losses)))
