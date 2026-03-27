@@ -209,7 +209,7 @@ freq_comparison <- tibble(
 
 freq_comparison |>
   gt() |>
-  tab_header(title    = "Table S1 — Frequency Model Comparison",
+  tab_header(title    = "Frequency Model Comparison",
              subtitle = "Chi-sq on pooled counts 0,1,2,3+  |  Selected model highlighted") |>
   fmt_number(columns = AIC,             decimals = 0, use_seps = TRUE) |>
   fmt_number(columns = `Chi-Sq`,        decimals = 1) |>
@@ -771,6 +771,91 @@ oep_curve <- tibble(
 )
 
 
+stress_table <- tibble(
+  Scenario    = c(
+    "1-in-100 year aggregate (AEP 1%)",
+    "1-in-200 year aggregate (AEP 0.5%)",
+    "1-in-100 year per-occurrence (OEP 1%)",
+    "1-in-250 year per-occurrence (OEP 0.4%)"
+  ),
+  Basis       = c("AEP", "AEP", "OEP", "OEP"),
+  `Loss ($M)` = c(
+    quantile(agg_losses, 0.99),
+    quantile(agg_losses, 0.995),
+    pml_100,
+    pml_250
+  ),
+  `Excess over Mean ($M)` = c(
+    quantile(agg_losses, 0.99)  - mean(agg_losses),
+    quantile(agg_losses, 0.995) - mean(agg_losses),
+    pml_100 - mean(pml_losses[pml_losses > 0]),
+    pml_250 - mean(pml_losses[pml_losses > 0])
+  ),
+  `Multiple of Mean` = c(
+    quantile(agg_losses, 0.99)  / mean(agg_losses),
+    quantile(agg_losses, 0.995) / mean(agg_losses),
+    pml_100 / mean(pml_losses[pml_losses > 0]),
+    pml_250 / mean(pml_losses[pml_losses > 0])
+  )
+)
+
+stress_table |>
+  gt() |>
+  tab_header(
+    title    = "Table S9 — Stress Testing: Key Return Period Scenarios",
+    subtitle = paste0(
+      "AEP = total annual aggregate loss exceedance  |  ",
+      "OEP = single largest occurrence exceedance  |  ",
+      sprintf(
+        "E[aggregate] = $%.1fM  |  E[per-occurrence | claim occurs] = $%.1fM  |  ",
+        mean(agg_losses),
+        mean(pml_losses[pml_losses > 0])
+      ),
+      "Historical portfolio only — not Cosmic Quarry-specific"
+    )
+  ) |>
+  fmt_number(columns = c(`Loss ($M)`, `Excess over Mean ($M)`), decimals = 1) |>
+  fmt_number(columns = `Multiple of Mean`, decimals = 2) |>
+  tab_row_group(
+    label = "OEP — Per-Occurrence: informs XL retention and limit",
+    rows  = Basis == "OEP"
+  ) |>
+  tab_row_group(
+    label = "AEP — Aggregate: informs ASL attachment and capital adequacy",
+    rows  = Basis == "AEP"
+  ) |>
+  cols_hide(columns = Basis) |>
+  tab_style(
+    style     = cell_fill(color = "#fff9c4"),
+    locations = cells_body(rows = Scenario %in% c(
+      "1-in-100 year aggregate (AEP 1%)",
+      "1-in-100 year per-occurrence (OEP 1%)"
+    ))
+  ) |>
+  tab_style(
+    style     = cell_text(weight = "bold"),
+    locations = cells_row_groups()
+  ) |>
+  cols_align(align = "left",   columns = Scenario) |>
+  cols_align(align = "center", columns = c(`Loss ($M)`, `Excess over Mean ($M)`, `Multiple of Mean`)) |>
+  tab_options(
+    table.font.size              = 13,
+    heading.title.font.size      = 14,
+    column_labels.font.weight    = "bold",
+    row_group.font.weight        = "bold"
+  ) |>
+  print()
+
+cat(sprintf("\nKey stress test figures:\n"))
+cat(sprintf("  1-in-100 aggregate  (AEP 1%%):  $%.2fM  (%.2fx mean)\n",
+            quantile(agg_losses, 0.99),
+            quantile(agg_losses, 0.99) / mean(agg_losses)))
+cat(sprintf("  1-in-200 aggregate  (AEP 0.5%%): $%.2fM  (%.2fx mean)\n",
+            quantile(agg_losses, 0.995),
+            quantile(agg_losses, 0.995) / mean(agg_losses)))
+cat(sprintf("  1-in-100 occurrence (OEP 1%%):  $%.2fM\n", pml_100))
+cat(sprintf("  1-in-250 occurrence (OEP 0.4%%): $%.2fM\n", pml_250))
+
 # =============================================================================
 # I. PRICING PIPELINE: PURE PREMIUM AND GLM RELATIVITIES
 # =============================================================================
@@ -831,8 +916,7 @@ ilf_fn <- function(limit, basic = 5.0) {
   lev_fn(limit) / lev_fn(basic)
 }
 
-BASIS_RISK_LOAD <- 0.10
-PP_parametric   <- PP_sim * (1 + BASIS_RISK_LOAD)
+PP_parametric   <- PP_sim 
 POC_LIMIT_M     <- 50.0
 lev_factor      <- lev_fn(POC_LIMIT_M) / E_X
 PP_after_limit  <- PP_parametric * lev_factor
@@ -861,7 +945,7 @@ EXP_TOTAL       <- 0.2
 PROFIT_LOAD     <- 0.12
 
 cov_agg     <- sd(agg_losses) / mean(agg_losses)
-RISK_MARGIN <- max(round(cov_agg * 0.5, 2), 0.10)
+RISK_MARGIN <- round(cov_agg, 2)
 PP_risk_adj <- PP_technical * (1 + RISK_MARGIN)
 GP_base     <- PP_risk_adj / (1 - EXP_TOTAL - PROFIT_LOAD)
 
@@ -1197,16 +1281,14 @@ sensitivity <- tribble(
 # ── L.3 Table 9: Base premium build-up ───────────────────────────────────────
 tibble(
   Stage          = c("Base pure premium (simulated, exposure-weighted)",
-                     "After parametric basis risk load (+10%)",
                      "After per-occurrence limit — LEV($50M)",
                      "After deductible — DAF($250K)",
                      "After exclusion adjustment (×0.80)",
                      "After risk margin",
                      "Base gross premium (no reinsurance load)"),
-  `Premium ($M)` = c(PP_sim, PP_parametric, PP_after_limit,
+  `Premium ($M)` = c(PP_parametric, PP_after_limit,
                      PP_after_ded, PP_technical, PP_risk_adj, GP_base),
   Adjustment     = c("—",
-                     sprintf("+%.0f%%", BASIS_RISK_LOAD * 100),
                      sprintf("×%.4f (LEV/E[X])", lev_factor),
                      sprintf("×%.4f (DAF)",       daf_fn(DED_M)),
                      sprintf("×%.4f (excl. adj)", EXCL_ADJ),
