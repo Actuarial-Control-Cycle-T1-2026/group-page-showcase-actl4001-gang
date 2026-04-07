@@ -243,7 +243,7 @@ sev_by_type <- sev %>%
     avg_claim_amount = mean(claim_amount, na.rm = TRUE)
   )
 
-pure_premium_by_type <- freq_by_type_plot %>%
+pure_premium_by_type <- freq_by_type %>%
   left_join(sev_by_type, by = "equipment_type") %>%
   mutate(
     pure_premium_per_unit = freq_rate * avg_claim_amount
@@ -2485,7 +2485,7 @@ stress_results <- pmap_dfr(
 
 print(stress_results)
 
-# Summary pf stress test results
+# Summary of stress test results
 stress_results_report <- stress_results %>%
   mutate(across(where(is.numeric), ~ round(.x, 2)))
 
