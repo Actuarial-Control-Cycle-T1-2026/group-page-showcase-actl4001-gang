@@ -1,6 +1,6 @@
 # SOA 2026 Student Research Case Study
 
-# Note: this was written and used internally within the team as a "quick start guide" since we were unfamiliar with github. it contains step-by-step instructions on how github works, how to link it to RStudio (which all of us bar one used), and a quick equitte guide on how to commit/push changes onto the GitHub repo :)
+Note: this was written and used internally within the team as a "quick start guide" since we were unfamiliar with github. it contains step-by-step instructions on how github works, how to link it to RStudio (which all of us bar one used), and a quick equitte guide on how to commit/push changes onto the GitHub repo :)
 
 ## Project Structure
 ```
