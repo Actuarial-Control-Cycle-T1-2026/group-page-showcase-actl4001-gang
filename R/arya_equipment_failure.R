@@ -2287,6 +2287,36 @@ summarise_10yr_results <- function(sim_df) {
   )
 }
 
+estimate_ruin_probability_stress <- function(
+    initial_reserve,
+    inventory_df,
+    pricing_df,
+    proj_df,
+    freq_mult = 1,
+    sev_mult = 1,
+    premium_mult = 1,
+    expense_mult = 1,
+    invest_mult = 1,
+    n_sims = 300 #3000
+) {
+  ruined_vec <- replicate(n_sims, {
+    path <- simulate_10yr_financials_with_reserves_stress(
+      inventory_df = inventory_df,
+      pricing_df = pricing_df,
+      proj_df = proj_df,
+      initial_reserve = initial_reserve,
+      freq_mult = freq_mult,
+      sev_mult = sev_mult,
+      premium_mult = premium_mult,
+      expense_mult = expense_mult,
+      invest_mult = invest_mult
+    )
+    any(path$closing_reserve < 0)
+  })
+  
+  mean(ruined_vec)
+}
+
 # Find reserves required under stress test scenarios
 find_required_initial_reserve_stress <- function(
     inventory_df,
@@ -2382,6 +2412,7 @@ find_required_initial_reserve_stress <- function(
     max_tested_reserve = max(all_results$initial_reserve, na.rm = TRUE)
   )
 }
+
 
 # Stress test scenarios
 stress_scenarios <- tribble(
