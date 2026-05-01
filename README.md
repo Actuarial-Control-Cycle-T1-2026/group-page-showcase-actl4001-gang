@@ -141,7 +141,7 @@ Two data elements are required before Galaxy General can price BI on a defensibl
 	A historical rate expressed per unit of gross profit: Declared sums insured (gross profit) for BI claims must be recovered from Galaxy General's own historical underwriting records.
 	Second, Cosmic Quarry must declare annual gross profit for all 55 stations at policy inception, enabling the rate per unit of GP to be applied correctly. 
 
-References
+## References
 Acharyya, M., Couper, A., Oliver, P., Kelliher, J., Niall, E., Maguire, V., Pang, A., Smerald, C., Sullivan, J. and Matthew, P. (2023). Validating Operational Risk Models by the Operational Risk Working Party. [online] Available at: https://actuaries.org.uk/media/32apm2gl/validating-operational-risk-models.pdf.
 Allianz Commercial. (2026). Allianz Risk Barometer 2026. Allianz Commercial. Available at: https://commercial.allianz.com/news-and-insights/reports/allianz-risk-barometer.html
 EY. (2024). Top 10 business risks and opportunities for mining and metals in 2024. Ernst & Young Global Limited. Available at: https://www.ey.com/en_gl/mining-metals/top-10-business-risks-and-opportunities-for-mining-and-metals
