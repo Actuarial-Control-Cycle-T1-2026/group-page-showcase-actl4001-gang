@@ -1,3 +1,5 @@
+## link to github repository: https://github.com/Actuarial-Control-Cycle-T1-2026/group-page-showcase-actl4001-gang
+
 ## ACTL4001 Group Project Report
 
 ## Executive Summary
