@@ -1,254 +1,146 @@
-# SOA 2026 Student Research Case Study
-
-Note: this was written and used internally within the team as a "quick start guide" since we were unfamiliar with github. it contains step-by-step instructions on how github works, how to link it to RStudio (which all of us bar one used), and a quick equitte guide on how to commit/push changes onto the GitHub repo :)
-
-## Project Structure (old)
-```
-soa-2026-case-study/
-├── data/
-│   ├── raw/          ← Add SOA data files here locally (not synced to GitHub)
-│   └── cleaned/      ← Output from 01_cleaning.R
-├── R/                ← All R scripts, run in numbered order
-├── report/           ← Report drafts
-├── outputs/
-│   └── figures/      ← Charts exported from R
-├── .gitignore
-└── README.md
-```
-
-## Script Run Order
-Run R scripts in this order: `00` → `01` → `02` → `03` → `04` → `05`
-
----
-
-# 👥 Collaboration Guide — Start Here
-
-This section walks you through everything you need to go from zero to fully set up and collaborating through GitHub. Follow the steps in order.
-
----
-
-## Stage 1 — Install Git on Your Computer
-
-Git is the software that tracks changes to files. GitHub is the website that hosts the project online. You need Git installed locally before anything else works.
-
-### Windows
-1. Go to **https://git-scm.com/download/win** and download the installer
-2. Run the installer — accept all default settings throughout
-3. Once installed, you'll have a program called **Git Bash** on your computer — this is your terminal for running Git commands
-
-### Mac
-1. Open **Terminal** (search for it in Spotlight)
-2. Type the following and press Enter:
-```bash
-git --version
-```
-3. If Git is not installed, macOS will automatically prompt you to install it — follow the prompts
-
----
-
-## Stage 2 — Configure Git With Your Identity
-
-This tells Git who you are so your changes are tagged with your name. You only do this once.
-
-Open **Terminal** (Mac) or **Git Bash** (Windows) and run these two commands, replacing the name and email with your own:
-
-```bash
-git config --global user.name "Your Name"
-git config --global user.email "your@email.com"
-```
-```
-*note: shortcut to paste in the git terminal is middle mouse, otherwwise you can just right click and select paste (control + v does not work)
-``` 
-Use the same email address you signed up to GitHub with.
-
----
-
-## Stage 3 — Accept the Repository Invitation (if u are looking at this on github you're done with this, go to next step)
-
-1. Check your email for an invitation from GitHub to join the repository
-2. Click **View invitation** → **Accept invitation**
-3. You now have access to the repo at `https://github.com/ethan-boey/actl4001-soa-2026-case-study`
-
----
-
-## Stage 4 — Clone the Repository to Your Computer
-
-Cloning creates a local copy of the project on your laptop that stays connected to GitHub.
-
-Open Terminal (Mac) or Git Bash (Windows) and run:
-
-```bash
-cd Documents
-git clone https://github.com/ethan-boey/actl4001-soa-2026-case-study.git
-cd actl4001-soa-2026-case-study
-```
-
-Replace `Documents` with whatever folder you want the project to live in.
-
-After this you'll have a folder called `actl4001-soa-2026-case-study` on your computer containing the full project.
-
----
-
-## Stage 5 — Add the Raw Data Files Locally
-
-The SOA data files are intentionally excluded from GitHub (they're too large and don't need version tracking). You need to add them manually to your local copy.
-
-Place all of the following files inside the `data/raw/` folder on your computer (create a new "raw" folder if not already there, the SOA files can be downloaded if you havent already from the SOA website):
-
-- `srcsc-2026-claims-business-interruption.xlsx`
-- `srcsc-2026-claims-cargo.xlsx`
-- `srcsc-2026-claims-equipment-failure.xlsx`
-- `srcsc-2026-claims-workers-comp.xlsx`
-- `srcsc-2026-cosmic-quarry-inventory.xlsx`
-- `srcsc-2026-cosmic-quarry-personnel.xlsx`
-- `srcsc-2026-interest-and-inflation.xlsx`
-
-These files will never be uploaded to GitHub — every team member manages their own local copy.
-
----
-
-## Stage 6 — Connect RStudio to Git
-
-### 6a — Enable Git in RStudio settings
-1. Open RStudio
-2. Go to **Tools → Global Options → Git/SVN**
-3. Tick **"Enable version control interface for RStudio projects"**
-4. Under **Git executable**, check the path is filled in automatically
-   - If not, click **Browse** and find it:
-     - **Windows:** `C:/Program Files/Git/bin/git.exe`
-     - **Mac:** open Terminal, type `which git`, and paste the result
-5. Click **OK** and restart RStudio
-
-### 6b — Open the project in RStudio
-This is the step that activates the Git panel inside RStudio.
-
-1. In RStudio, go to **File → New Project → Existing Directory**
-2. Navigate to your cloned `actl4001-soa-2026-case-study` folder
-3. Click **Create Project**
-
-This is where we will be working on files locally, which then can be uploaded to the Github repo (see below).
-
----
-
-## Stage 7 — Create Your Personal Branch
-
-Everyone works in their own branch to avoid overwriting each other's work. Think of it as your own personal lane.
-
-In the RStudio Git panel, find the **purple branch icon** in the top-right corner of the panel:
-
-1. Click the **purple branch icon**
-2. Type your branch name from the table at the top of this README (e.g. `wc-bi-models`)
-3. Make sure **"Sync branch with remote"** is ticked
-4. Click **Create**
-
-You are now working in your own branch. All your commits stay in your lane until you're ready to merge.
-
----
-
-## Stage 8 — Understand How It All Works
-
-### The big picture
-
-```
-Your Laptop            GitHub (cloud)         Teammate's Laptop
------------            --------------         -----------------
-your copy   →  push →  shared copy  ← pull ←  their copy
-            ← pull ←               → push →
-```
-
-Everyone has their own copy of the project locally. GitHub is the shared copy in the middle. You **push** to send your work up, and **pull** to receive your teammates' work down.
-
-### The four commands you'll use every day
-
-| Action | What it does | How to do it in RStudio |
-|--------|-------------|------------------------|
-| **Pull** | Download latest changes from teammates | Click the blue ↓ arrow in the Git panel |
-| **Stage** | Mark files as ready to save | Tick the checkbox next to each file in the Git panel |
-| **Commit** | Save a labelled snapshot of your changes | Click **Commit**, write a message, click **Commit** |
-| **Push** | Upload your commits to GitHub | Click the green ↑ arrow in the Git panel |
-
-### The status letters in the Git panel
-
-When you save a file, it appears in the Git panel with a letter showing its status:
-
-| Letter | Meaning |
-|--------|---------|
-| `M` | Modified — you changed a file that already existed |
-| `?` | Untracked — a new file Git hasn't seen before |
-| `A` | Added — staged and ready to commit |
-| `D` | Deleted — a file has been removed |
-
----
-
-## Stage 9 — Your Daily Workflow
-
-Follow this sequence every time you sit down to work on the project.
-
-### Step 1 — Pull before you do anything else
-In the RStudio Git panel, click the **blue ↓ Pull arrow**.
-This downloads your teammates' latest work. Always do this first — skipping it is how you end up with conflicts.
-
-### Step 2 — Write your R code as normal
-Open your assigned script, write code, save the file. As soon as you save, the file appears in the Git panel.
-
-### Step 3 — Stage your files
-Tick the **checkbox** next to each file you want to include in your next commit. If you've only changed one file, only tick that one.
-
-### Step 4 — Commit your changes
-1. Click the **Commit** button
-2. A window opens — you'll see your staged files on the top left, and a colour-coded preview of your changes at the bottom (green = added lines, red = removed lines)
-3. In the **Commit message** box (top right), write a short description of what you did — e.g. *"fitted lognormal distribution to cargo severity"*
-4. Click **Commit** — a confirmation popup appears, close it
-
-### Step 5 — Push to GitHub
-Click the **green ↑ Push arrow**. Your work is now on GitHub and visible to the whole team.
-
----
-
-## Stage 10 — Merging Your Work Into Main
-
-When your section is complete and ready for the project lead to review:
-
-1. Go to the GitHub repo page in your browser
-2. GitHub will show a yellow banner: **"Your branch had recent pushes — Compare & pull request"** — click it
-3. Write a short summary of what you completed
-4. Assign the **Project Lead** as the reviewer
-5. Click **Create pull request**
-
-The project lead reviews your changes, leaves any comments, and clicks **Merge** when ready. Your work is now in `main` and available to everyone on their next pull.
-
----
-
-## Common Issues & Fixes
-
-**The Git panel isn't showing in RStudio**
-Go to `Tools → Global Options → Git/SVN` and make sure the Git executable path is set correctly, then restart RStudio. Also make sure you opened the project using the `.Rproj` file and not just the folder.
-
-**I get an error when pushing**
-You probably need to pull first. Click the blue ↓ Pull arrow, then try pushing again.
-
-**I accidentally edited a file and want to undo it**
-In the Git panel, right-click the file → **Revert** → confirm. This restores it to the last committed version. Note: this permanently discards your uncommitted changes.
-
-**Two people edited the same file (merge conflict)**
-Git will flag the file in the panel. Open it in RStudio — you'll see sections marked with `<<<<<<<` and `>>>>>>>` showing both versions. Edit the file to keep the correct version, delete the markers, save, then stage and commit as normal. The best prevention is to always pull first and stick to your assigned scripts.
-
-**I committed to the wrong branch**
-Tell the project lead before pushing — it's fixable without pushing. If you've already pushed, still tell the project lead and they can sort it out.
-
----
-
-## Quick Reference Card
-
-```bash
-# These are the terminal equivalents of the RStudio buttons, for reference
-
-git pull origin main              # download latest from GitHub
-git checkout -b your-branch-name  # create and switch to a new branch
-git checkout main                 # switch back to main
-git add .                         # stage all changed files
-git commit -m "your message here" # save a snapshot
-git push origin your-branch-name  # upload to GitHub
-git status                        # see what's changed locally
-git log --oneline                 # see commit history
-```
+## ACTL4001 Group Project Report
+
+1. Executive Summary
+Following an actuarial assessment, it is recommended that Galaxy General Insurance Company include the following insurance products in its portfolio which cover three of the four hazard areas requested by Cosmic Quarry Mining Corporation: Equipment Failure, Cargo Loss, and Workers' Compensation. Business Interruption is not recommended currently due to a material exposure data mismatch which carries significant pricing uncertainty. 
+BI coverage compensates policyholders for profits lost during an operational shutdown (Kagan, 2024) so its claim severity is directly proportional to gross profit, however data available did not contain a usable exposure basis. A complete BI product was still designed, though direction and magnitude of the resulting rate bias are unquantifiable, so it is not recommended until data requirements in Section 6 are met. 
+The recommended products were shown to be financially viable under the assumptions made as seen in the graph below, which supports the recommendation for its inclusion along with further analysis done. However, periodic pricing reviews and claims monitoring are recommended for all products as repricing may be necessary over time to remain profitable due to changes in claim behaviour, operating conditions and the size and composition of the insured portfolio over time. 
+ 
+Although solar system was not used as a pricing variable due to insufficient information, the products were priced using other operational variables as key risk characteristics to reflect the varying operating conditions. Further underwriting loadings are also recommended. Claims should be monitored from Bayesia System and Oryn Delta to allow the models to be tailored to those risks. The products were also designed to be adaptable and scalable for expanding operations or emergence of new hazards. The equipment failure product was priced on a schedule-rated basis which allows premiums to reflect different risks and allows new segments to be added easily. The cargo loss product applies stochastic modelling of metals prices and production rates to reflect changes in the underlying values of cargo shipped which allows premiums to adjust based on an evolving portfolio. Similarly, the pricing model used for workers’ compensation is also flexible in allowing for changes in the workforce size, occupational mix and evolving environmental conditions. 
+The inclusion of the recommended products supports ESG objectives as it encourages better safety and maintenance standards which support worker safety and reduces breakdown-related waste or environmental damage from machine failures during mining or transport. The recommended insurance products can also support Cosmic Quarry’s ERM framework. Equipment failure insurance supports operational continuity by reducing the financial impact of machinery breakdown and enabling quicker recovery. Similarly, the portfolio-wide Cargo Loss cover reduces financial burdens since losses are driven by repeated shipment exposure which can be severe when transporting high-value minerals. Workers’ Compensation is a safeguard against employee injury risk during operations while reinforcing training, protective equipment, and system-specific safety controls. Business Interruption insurance remains a strategic product but should only be considered one sufficient exposure data is available to make credible pricing assumptions.
+2. Product Design
+A common pricing framework is applied across all products (detailed in section 3). Premiums were determined using risk-based pricing, where rates were determined by statistically significant risk variables found in the claims data rather than by arbitrary or commercially beneficial categories. All pricing loadings were clearly stated to allow transparency around how the premium were set. 
+Underwriting adjustments should be made to reflect the different solar system risks as it was not included as a direct pricing variable. Bayesia System and Oryn Delta have no direct historical claims experience, but they were considered qualitatively based on their unique environments. This is consistent with actuarial practice for emerging risks where data credibility is insufficient to support a model-derived factor (Acharyya et al, 2023). Bayesia could be subject to an underwriting load of up to 15% to reflect binary star radiation spike risk and up to 20% for Oryn Delta due to its asteroid ring and potential sporadic flares which contribute to tail risks. The Helionis Cluster requires the least adjustment as it has stable conditions.
+Below is a list of common features applied to all products defining the scope of liability.
+Coverage Period	Coverage period is available for both annual and multi-year policy terms. Multi-year policies are subject to annual review clauses that allow for repricing of the calculated premiums in the event of significant or material changes in insured conditions/ operating environment. 
+Shared Exclusions		Pre-existing equipment degradation or defects known at policy inception
+	Failure due to non-compliance with maintenance requirements or neglect
+	Failure due to negligence or operations outside official operation conditions
+	Claims arising from acts of war or civil unrest among interstellar jurisdictions
+	Penalties imposed for regulatory non-compliance such as environmental violations 
+
+Cosmic Quarry has two prior environmental dispute settlements which poses a conduct risk. By excluding coverage for penalises arising from such actions, we avoid subsidising non-compliance. This maintains ESG integrity and incentives Cosmic Quarry to improve environmental standards. 
+2.1 Equipment Failure
+The equipment failure product is a portfolio-wide policy covering declared mining and operational equipment which would cover Cosmic Quarry’s 4,730 units across the 6 equipment types.
+Benefit Structure    	Cover for repair or replacement costs for the insured equipment subject to the declared insured value of the items. The policy covers repair costs or replacement costs if the equipment is a total loss up to the insured value of the equipment.
+Coverage Trigger	Unintentional breakdown or failure of the equipment during normal operations within the policy coverage period. This includes mechanical, electrical or functional breakdowns.
+Exclusions		Ordinary wear and tear
+
+2.2 Cargo Loss
+The cargo loss product is a portfolio-wide policy covering financial losses per shipment. This would cover Cosmic Quarry’s portfolio of 10,625 shipments each year across several cargo types from 55 mines with a total sum insured of Đ816.3 billion in the first year. 
+Benefit Structure    	Product offered operates on an indemnity basis, insuring directly against financial losses suffered by the Cosmic Quarry Mining Corporation on a per-shipment basis for all cargo types. The policy covers the declared insured value of each shipment, subject to the terms described below. 
+Coverage Trigger		Total/ partial physical irrecoverable loss of cargo during transit, including: collision with debris, asteroid impact, structural failure of cargo vessel
+	Complete destruction or irrecoverable loss of the carrying vessel, resulting in total loss of insured cargo aboard
+Per-shipment Coverage	Each shipment registered under the policy is considered a discrete insured unit. At the occurrence of a valid claim the insurer pays the lesser of either, the declared cargo value at departure or the verified market value of the cargo at the time of loss.
+Exclusions		Inherent deterioration independent of transit event
+
+2.3 Workers' Compensation 
+The workers’ compensation product is a portfolio-wide policy covering eligible employees engaged in declared operational activities which would cover Cosmic Quarry’s 36,000 workers.
+Benefit Structure    	The product provides indemnity-based coverage for statutory and workplace-related employee injury costs arising from Cosmic Quarry’s mining and operational activities. Benefits cover medical treatment, wage replacement, rehabilitation expenses, and death or permanent disability compensation, subject to the applicable policy terms and legal benefit schedule. 
+Coverage Trigger	Coverage is triggered by a work-related injury or occupational illness sustained by an insured employee during the policy period, provided the event arises in the course of, insured employment. 
+Exclusions		Criminal or fraudulent acts by the insured (including self-inflicted injury)
+
+Galaxy General should monitor whether occupation-based relativities inadvertently disadvantage lower-paid workers who may have limited ability to negotiate employment conditions. Periodic fairness reviews of the rating structure are recommended.
+Claim costs are recognised on an ultimate basis but paid over time according to expected claim duration with the schedule below. 
+Claim Type	Length 	Payment Pattern
+Short	≤ 30 days	100% in year 1, with a small residual tail over later development periods
+Medium 	31-180 days	70% in year 1, 30% in the following year
+Long 	> 180 days	50% in year 1, 20% in year 2, 15% in year 3, 10% in year 4, 5% in year 5
+2.4 Business Interruption 
+The business interruption product is a station-based policy covering lost profits during declared mining and operational activities which would cover Cosmic Quarry’s 55 mining stations.
+Benefit Structure    	The BI product provides indemnity-based coverage for gross profit lost during an insured operational shutdown, net of variable costs saved during the period of interruption. Coverage is subject to a per-occurrence limit of Đ 50M and a deductible of Đ 250k per event, both calibrated to the historical claims distribution and requiring proportional rescaling once a defensible financial exposure basis is established. There is no fixed maximum indemnity period; the claim extinguishes as operations resume.
+Coverage Trigger		Physical damage to insured mining assets
+	Supply chain disruption preventing delivery of critical materials or equipment
+	Environmental events causing cessation of extraction activity.
+The shutdown must exceed the deductible threshold.
+Exclusions		Voluntary or planned operational shutdowns (including government mandated)
+A rating table was developed using GLM derived relativity factors for significant covariates (see section 3.4 for methodology). This allows for loadings to be applied to reflect the fair price of a given station according to its risk profile. The full rating table is shown in Appendix 1. 
+The recommended reinsurance structure of Excess of Loss (XoL) per-occurrence at P75 retention (Đ 4.787M) with an Aggregate Stop Loss (ASL) at 200% EL (20% ROL) was selected from a 64-combination grid to balance maximising net revenue at VaR(99%) and the cost of reinsurance. The XoL layer absorbs large single events; the ASL protects against correlated multi-station scenarios such as a system-wide supply chain failure or Bayesia radiation event. Total portfolio reinsurance cost: ~ Đ 11.96M per year (Đ 0.218M per station). Full grid analysis in Appendix 1.
+3. Summary of Pricing and Capital Modelling
+3.1 Frequency Modelling
+For each individual hazard area, claim frequency was modelled separately with distribution selection decided by the statistical properties of each dataset. For equipment failure and workers’ compensation, a Poisson GLM (Equation 1) was adopted as the frequency model due to the lack of dispersion in both hazard area claims frequency data. Using MLE to estimate the parameters, the fitted equipment failure and workers’ compensation frequency distribution (Table 1 and 2) had RSME of 0.2788 and 0.1194 (Table 3 & 4) respectively suggesting an acceptable fit. For the cargo claims frequency, a negative binomial distribution (Table 5) was determined to be the best fit due to its ability to model overdispersion (1.42) and high accuracy in mapping different claim amounts, especially 0 claims (modelled 81.74% vs observed 81.77%). For BI claims frequency, a Zero-Inflated Negative Binomial (ZINB) distribution (Table 6) was adopted, selected based on AIC. Note that the “exposure” variable (a ratio recording the fraction of a year each policy was at risk) is incorporated into the frequency model as a multiplicative scalar on the expected claim count. The choice of ZINB distribution was motivated by the excess zero-claims in the data, with 77.6% of station-years recording no claim. All the models excluded solar system as a predictor due to the differences in the historical and target solar systems. 
+3.2 Severity Modelling
+Claims severity for each hazard area was modelled independently of each other, with distribution selection driven by goodness of fit applied to the empirical claims data. For equipment failure, a spliced severity model with a log-normal body and a Generalized Pareto tail above a threshold value of the 92.5th percentile was chosen, detailed in Appendix 3. Severity distributions were fitted for each cargo type (Table 7) and parameters were estimated using maximum likelihood estimation. Model selection was based on Kolmogorov Smirnov p-values (Table 8) and QQ plots (Figure 2) to provide diagnostics of tail and body fits. The aggregate log-severity distribution across all cargo types exhibits bimodality, motivating the differentiated cargo type modelling approach. For workers compensation claims severity was modelled per occupation using lognormal GLM regression, reflecting the strong right-skew in claim amounts (Table 9). Modelling at the occupation level accounts for materially different injury cost profiles across Cosmic Quarry's diverse workforce and fit was assessed using QQ plots, which provided diagnostics of both body and tail fit. For BI severity model, it follows a Lognormal GLM distribution (Table 10), selected from five candidate models on AIC and Kolmogorov-Smirnov tests (Table 11).
+3.3 Aggregate Loss Distribution
+For each individual hazard area aggregate annual losses are computed using a Monte Carlo simulation over 100,000 paths using the hazard specific claim frequency and severity models. Each path is simulated using Equation 2 and the expected losses and standard deviation of aggregate losses are shown in Table 12 and 13.
+L=∑_(Units Insured)▒∑_(i=1)^(N_h)▒X_(h,i) 	(2)
+N_h is a random variable which follows each hazard’s frequency model
+X_(h,i) is a random variable which follows each hazard’s severity model
+
+For equipment failure, loss was determined at a segment level across 90 distinct portfolio segments due to the schedule-rated pricing approach taken and then aggregated. The segments were determined based on the significant variables determined from the claims data and Cosmic Quarry’s inventory data which was used as an exposure basis for pricing. 
+
+Hazard areas are modelled independently in the aggregate simulation; dependency between lines is addressed qualitatively in Section 4.2 rather than through a formal copula structure. This is a known limitation which may understate correlated tail risk in a catastrophic scenario. However, the three recommended products may also collectively benefit from diversification meaning the combined portfolio variance is lower than the sum of individual variances. This could support a lower total capital/reserve requirement.
+3.4 Premiums Calculations
+Premiums are calculated across all hazard areas using Equation 3 and are shown in Table 14,
+Premium=(1+π)×(E[L]+λ×σ(L)+ϵ×E[L])	(3)
+Where E[L] is the expected aggregate loss from the Monte Carlo Simulation, σ(L) is the STD of aggregate loss, λ is a risk loading factor (λ=0.1), representing an additional buffer against adverse loss experience, ϵ is an expense loading (ϵ=0.2) which covers underwriting costs, operational expenses and claims processing, and π is the profit margin (π=12%) applied to the total expenses.
+For cargo types, further details on mine ore distribution and shipments are in Appendix 2. For BI, some risk is transferred to the policyholder via measures included in the product design such as the per-occurrence limit, deductible, and exclusion adjustments. Therefore, to maintain fair pricing, discounts are applied to the pure premium at rates proportional to cost-savings from said features. Full details in Table 15. Reinsurance costs were passed through to policyholders in the form of premium increases. For EF, a risk relativity factor was considered to capture solar system risk by equipment type, but the impact was minor with a change of only 0.5% in premiums and insufficient additional evidence to support its inclusion. 
+3.5 Financial Projections
+Expected losses in each projection year are discounted to present value while investment income on beginning-of-year reserves is credited at the same real rate. The methodology is described under the “Assumptions” section.
+Short and long-term projections for 10-years were modelled to assess the financial viability and profitability of the premiums generated with inflation applied to claims, premiums and expenses. The aggregate loss for each year was simulated, and expenses were added to get the overall costs. The net revenue was then calculated based on the premiums determined earlier (see Table 16). Value at Risk (VaR) and Tail Value at Risk (TVaR) values were used to analyse tail risk (see Table 17 and 18). Results showed positive net revenue across the products over the 10-year period under the assumptions made with negative revenues in certain extreme cases.
+3.6 Reserves Calculations
+The required initial reserve (shown in Table 19) is set such the probability of ruin does not exceed 1% in any of the 10-year projected.  This is evaluated across 100,000 paths, where the evolution reserves for each year are in accordance with the following process. End of year reserves equal to beginning of year reserves plus premiums collected less claims paid plus investment income earned on beginning of year reserves. All profits generated in each year are added to reserves, allowing the reserves base to grow over time.
+3.7 Stress Testing
+Stress testing of equipment claims (see Table 20) by increasing the mean value of frequency and severity claims distribution by 10% and 20% showed that it is highly sensitive to changes in claim experience in comparison to changes in profit, expense or risk margins. In cases where frequency and severity were increased by 20%, the expected 1-year net revenue became negative and initial reserves would be required to avoid ruin, which indicates that results from our initial capital analysis were due to our strong base assumptions.
+Cargo claims were stress tested by shifting all seven severity distribution parameters simultaneously to specified percentiles parameter estimates. Notably the P75 stress test of all seven cargo types, with a probability of 0.006% under the assumption of independence, presented a contained financial impact with an approximate increase of aggregate expected losses by 11%, (shown in Table 21). The cumulative 10-year loss of 5.9B shown in Figure 3, while slightly negative represents only 1.65% of total cumulative premiums collected over the period.  The product remains near break-even under extreme tail events, which strongly supports the robustness of the pricing structure. 
+Sensitivity testing of workers’ compensation shows that the product remains viable under moderate pricing changes but deteriorates quickly under adverse loss experience. Lower expense loading and lower risk loading both weaken solvency modestly, while a +20% loss stress raises 10-year ruin probability to 37.5% and a +50% loss stress raises it to 99.1%. This indicates that the base premium is adequate for expected experience but not robust to sustained adverse claims development without additional capital support. Additional scenarios were tested and are summarised in Table 22.
+Under the historical severity assumption of BI, a Monte Carlo simulation (N=50,000) shows that the designed product alongside the combined XoL + ASL structure supports a 10-year ruin probability below 1% with initial reserves of approximately Đ 7.8M. The ruin probability curve is near-flat above rm = 0.5 (Figure 4). This is largely due to both policy limits and reinsurance schemes capping maximum losses. This reserve requirement scales proportionally with actual severity if Cosmic Quarry's financial exposure differs from the historical benchmark. 
+4. Risk Assessment
+4.1 Risk Identification by Hazard Area Coverage for each Solar System
+Equipment failure mainly comprises operational and underwriting risk. While direct losses are relatively smaller, breakdowns can still disrupt wider production, so risk should also include operational spillover. Moreover, there still exists wear and tear, gradual deterioration, and wider disruption of equipment that is not fully removed by insurance. 
+Cargo loss poses the greatest financial risk to the portfolio. Because cargo is directly exposed in transit, losses can be both frequent and severe, with disruptions often spilling into broader operations. Supply-chain disruption has consistently ranked among the top global business risks, signifying the importance of cargo exposure in the portfolio (Allianz, 2026). This risk is further amplified when high-value minerals such as gold and platinum are concentrated along transport routes. 
+Workers’ Compensation represents a workforce and safety risk. The mining sector is associated with disproportionately high occupational danger, while workforce risk is shaped by physical, environmental, and psychosocial hazards (Sanmiquel et al., 2023; ILO, 2020). Workers’ compensation product absorbs the financial cost of employee injury, but the underlying safety risk remains dependent on workplace conditions and controls. 
+Business interruption represents a major resilience risk because even short disturbances to mining operations can lead to large losses. This is supported by mining-sector evidence showing that environmental and remote-operating conditions can force suspensions of operations and staff evacuation (EY, 2024). 
+4.2 Correlated Risks and Scenario Testing
+Disruption in one area can spill into another, especially between business interruption and either cargo loss or equipment failure. Delayed shipments and machinery breakdowns can interrupt mine operations, while equipment failure may also indirectly worsen workers’ compensation risk. More broadly, interconnected shocks are consistent with resilience literature showing that losses often propagate across linked operations rather than remaining isolated to one failure point (McKinsey, 2020). These dependencies are summarised in the scenario table below.
+Scenarios	Description	Effect in Hazard Areas	Solar-System Impacts
+Best case	Smooth operations with minimal disruptions	Routine claims among every area	Helionis has largest total exposure, but losses remain contained 
+Moderate case	More frequent downtimes, equipment strain, route delays and greater injury risk	Cargo, BI, and EF worsen; WC rises through workforce strain	Helionis has largest total burden, while Oryn may deteriorate fastest because recovery is more difficult.
+Worst case	Catastrophic event causes route failure and widespread production downtime 	Huge cargo and BI losses; EF and WC worsen through extreme operational stress	Oryn is the most fragile system, while Helionis may produce the largest total losses because of scale
+
+Rank	Threat	Affected Hazard Area	Why it matters
+1	Multi-system wide event	Cargo, BI, EF, WC	whole portfolio impacted
+2	Cargo route disruption	Cargo, BI	strong operational spillover
+3	Operational fragility / downtime	BI	large financial severity
+4	Critical equipment breakdown	EF, BI, WC	direct loss and spillover
+5	Workforce strain / unsafe conditions	WC	operationally relevant
+4.3 Priority Threats
+
+4.4 Comparative Risk between Solar Systems
+Helionis Cluster will likely the largest total losses since it has the highest level of activity in the portfolio. With 30 mines and 375 thousand tons of annual ore production, it has the largest exposure base, whose risk is driven by scale and concentration. Bayesia System sits between the other two systems in terms of risk. It has less exposure than Helionis Cluster, but its harsher physical conditions suggest greater strain on equipment and workers. Its main risk therefore comes from operating conditions rather than sheer scale or fragility. Oryn Delta is likely the most fragile system in the portfolio. Although it may not have the largest exposure base, it appears least able to absorb operational shocks once disruption occurs. This makes its risk profile especially relevant for cargo loss and business interruption, where recovery difficulty matters as much as scale.
+5. Assumptions
+Shared Assumptions	Description	Impact
+Full coverage for all insured units in Cosmic Quarry	All financials in this report are assuming that Cosmic Quarry purchases insurance for all coverable units including all mined ores, employees, equipment, and mining stations. 	If Cosmic Quarry were to request specific coverage, pricing needs revaluation. 
+Full renewal on written polices	We assumed all policies written are renewed every year. This was due to the lack of information regarding lapses.  	Net revenue could be lower if certain policies are not renewed. 
+Solar system proxy	The claims data from other solar systems were used as a proxy for pricing due to the lack of other data. Due to the differences, solar system was removed as a predictor and rating variable in the models.  	The models could misrepresent the true underlying risks of the solar systems.
+Mean reversion in inflation and risk-free rates	Future inflation and nominal risk-free rates were projected using a mean-reverting method with a fixed reversion speed. Real rates were derived using the Fisher equation.	Slight shift in projected premiums, discounting, and profitability expected.
+Per-product Assumptions	Description	Impact
+Static equipment portfolio for EF 	Projections assumed the size and composition of the equipment portfolio remain the same across 10 years. Lack of credible basis on growth to the portfolio.	Long-term profitability may vary. May require regular repricing. 
+Unconditional severity distribution in the spliced model for EF	A spliced severity model was chosen for EF to prioritise an accurate fit without underestimating large losses. However, this assumes an unconditional severity distribution which doesn’t capture varying risks for severity based on the variables.	The severity model could be understating the difference in claim sizes across segments. 
+Identical financial scale between Cosmic Quarry and historical dataset for BI	The product was designed assuming that Cosmic Quarry is operating at scales similar to previously insured companies. However, this was determined to be too strong and unjustifiable of an assumption, leading to unchecked pricing uncertainty. This is the reason why the BI product is not recommended.	If the future claim severity follows past distribution, the product can be launched immediately.
+Independence of occupations for WC	Losses were modelled as independent across occupations when aggregating portfolio variance. 	Aggregate variance and extreme tail risk may be understated.
+Net revenue for Cosmic Quarry 	The “net revenue” line in the encyclopedia for Cosmic Quarry is assumed to be revenue less COGS rather than topline revenue.	This means actual topline revenue aligned with the  Đ816 value of Cargo. 
+
+Further assumptions made were included in the appendix (Table 23).
+
+6. Data and Data Limitations
+6.1 Data Cleaning
+A uniform set of rules were applied to clean each dataset from perceived data entry errors. We first standardised string-based identifiers by removing erroneous underscores and any characters after it. Any rows with missing values were excluded. For numeric variables, we removed rows where: 1) values was outside of the data dictionary bounds, and 2) values were non-integer when the data dictionary specified integer values only. For categorical variables, any rows with obvious spelling mistakes were deleted. Any exceptions to these rules are explicitly mentioned below. 
+This led to a reduction of 2.9%, 6.3%, 1.2%, and 2.5% of all claims for equipment failure, cargo loss, WC, and BI respectively. The percentage of rows removed fall within the acceptable limit of 5% in line with best practice (Kevalsakhiya, 2024); we deemed the 6.3% removed from the cargo dataset justifiable as rows were dropped across multiple criteria, meaning the underlying distribution would not have been meaningfully altered. 
+The main limitation for the workers’ compensation data is that executive claims had very low volume. This means base pricing is credible, but tail risk is probably understated unless management overlays additional catastrophe margins or capital. 
+For equipment failure, the data dictionary range for equipment age was 1-10 years. Analysis of the inventory dataset showed documented equipment service years exceeding 20 years. Furthermore, looking at the distribution of the equipment age, half were above the upper limit while the 99th percentile of the dataset corresponded to an age of 23.25 years. Since the data contained values of 300 years which were unrealistic, an upper bound of 30 years was applied. The data dictionary names for equipment also differed from the claims dataset but cross-checks with the inventory dataset showed alignment between datasets. Therefore, data dictionary names were disregarded.
+For business interruption, the stated data dictionary bounds for claim severity was between Đ28,000 and Đ1.426M. However, when plotting the full historical severity dataset, we find that the claim severity follows a continuous lognormal distribution with a mean of Đ4.4M with 63% of claims exceeding the ceiling (Figure 5) Therefore, we disregarded the dictionary’s bounds and retained the full dataset. 
+6.2 BI Data Limitations and Path to Recommendation 
+Pricing BI on a financial exposure basis requires financial exposure variable beyond time at risk, there is no declared sum insured, gross profit, or revenue for any historical policy. Without this, a gross-profit-based rate cannot be computed.
+Two data elements are required before Galaxy General can price BI on a defensible financial exposure basis. 
+	A historical rate expressed per unit of gross profit: Declared sums insured (gross profit) for BI claims must be recovered from Galaxy General's own historical underwriting records.
+	Second, Cosmic Quarry must declare annual gross profit for all 55 stations at policy inception, enabling the rate per unit of GP to be applied correctly. 
+
+References
+Acharyya, M., Couper, A., Oliver, P., Kelliher, J., Niall, E., Maguire, V., Pang, A., Smerald, C., Sullivan, J. and Matthew, P. (2023). Validating Operational Risk Models by the Operational Risk Working Party. [online] Available at: https://actuaries.org.uk/media/32apm2gl/validating-operational-risk-models.pdf.
+Allianz Commercial. (2026). Allianz Risk Barometer 2026. Allianz Commercial. Available at: https://commercial.allianz.com/news-and-insights/reports/allianz-risk-barometer.html
+EY. (2024). Top 10 business risks and opportunities for mining and metals in 2024. Ernst & Young Global Limited. Available at: https://www.ey.com/en_gl/mining-metals/top-10-business-risks-and-opportunities-for-mining-and-metals
+ILO. (2020). Safety and health at work. International Labour Organization. Available at: https://www.ilo.org/global/topics/safety-and-health-at-work
+Kagan, J. (2024). Business Interruption Insurance. [online] Investopedia. Available at: https://www.investopedia.com/terms/b/business-interruption-insurance.asp.
+Kevalsakhiya (2024). Best Practices For Data Cleaning: Polishing Data for Optimal Results. [online] Medium. Available at: https://medium.com/@kevalsakhiya/best-practices-for-data-cleaning-polishing-data-for-optimal-results-6bdc17f0d888 [Accessed 29 Mar. 2026].
+McKinsey & Company. (2020). Risk, resilience, and rebalancing in global value chains. McKinsey Global Institute. Available at: https://www.mckinsey.com/capabilities/operations/our-insights/risk-resilience-and-rebalancing-in-global-value-chains
+Sanmiquel, L., Freijo, M. and Edo, J. (2023) 'Statistical analysis of the severity of occupational accidents in the mining sector', Safety Science, 159, Article 106036. doi:10.1016/j.ssci.2022.106036.
